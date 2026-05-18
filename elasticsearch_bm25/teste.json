@@ -1,0 +1,89 @@
+{
+  "took": 2,
+  "timed_out": false,
+  "_shards": {
+    "total": 1,
+    "successful": 1,
+    "skipped": 0,
+    "failed": 0
+  },
+  "hits": {
+    "total": {
+      "value": 846,
+      "relation": "eq"
+    },
+    "max_score": 4.9993534,
+    "hits": [
+      {
+        "_index": "hqs",
+        "_type": "_doc",
+        "_id": "28266",
+        "_score": 4.9993534,
+        "_source": {
+          "comic_name": "thor: the rage of thor (2010)",
+          "issue_title": "thor: the rage of thor (2010) #1",
+          "issue_description": "the unquenchable rage of thor knows no satisfaction! it is an earlier day. the perverse and unjust trial of thor has left the god of thunder resentful and bitter. fed up with asgard, he has quit the gods and taken up with the world of men...joined a humble community...taken a wife. but when the bloody tides of asgard's battles lap even at the shores of earth, thor must take up arms once more -- or risk everything he now loves being eradicated under an unstoppable tide of death and destruction... one-shot/rated t ...$3.99",
+          "penciler": "michael suayan",
+          "writer": "peter milligan",
+          "cover_artist": ""
+        }
+      },
+      {
+        "_index": "hqs",
+        "_type": "_doc",
+        "_id": "28267",
+        "_score": 4.9993534,
+        "_source": {
+          "comic_name": "thor: the trial of thor (2009)",
+          "issue_title": "thor: the trial of thor (2009) #1",
+          "issue_description": "did thor snap? after an epic battle against the frost giants, the thunder god is accused of murdering innocent asgardians. it sounds impossible...except that balder the brave is an eyewitness to the carnage. did the mayhem and stress of war finally push even the greatest of heroes over the edge? one-shot/rated t ...$3.99",
+          "penciler": "cary nord",
+          "writer": "peter milligan",
+          "cover_artist": ""
+        }
+      },
+      {
+        "_index": "hqs",
+        "_type": "_doc",
+        "_id": "10377",
+        "_score": 4.4717417,
+        "_source": {
+          "comic_name": "generations: the unworthy thor & the mighty thor (2017)",
+          "issue_title": "generations: the unworthy thor & the mighty thor (2017) #1",
+          "issue_description": "her hammer, his ax: a worthy apocalypse. when a battle goes south, thor finds herself in ancient egypt - facing a young odinson! a misguided party of vikings has bitten off way more than they can spear. but when the prince of asgard answers their cries for help, he ends up in a fight no axe alone can win! and apocalypse is not one for mercy. can a not-yet-worthy god and a time-lost hero take on one of the world's most powerful mutants at the height of his empire? and what does their encounter mean for the future of two thors?",
+          "penciler": "mahmud asrar",
+          "writer": "jason aaron",
+          "cover_artist": "mahmud asrar"
+        }
+      },
+      {
+        "_index": "hqs",
+        "_type": "_doc",
+        "_id": "27583",
+        "_score": 4.3436584,
+        "_source": {
+          "comic_name": "thor (1966 - 1996)",
+          "issue_title": "thor (1966) #502",
+          "issue_description": "thor and red norvell flee new york after they are driven away by onslaught. before the end of existence, thor reminisces about his past in asgard.",
+          "penciler": "mike deodato",
+          "writer": "william messner-loebs",
+          "cover_artist": ""
+        }
+      },
+      {
+        "_index": "hqs",
+        "_type": "_doc",
+        "_id": "27584",
+        "_score": 4.3436584,
+        "_source": {
+          "comic_name": "thor (1966 - 1996)",
+          "issue_title": "thor (1966) #501",
+          "issue_description": "thor and kim discover red in pretty rough shape since losing his powers. the twosome vow to find the rest of the lost gods.",
+          "penciler": "mike deodato",
+          "writer": "william messner-loebs",
+          "cover_artist": ""
+        }
+      }
+    ]
+  }
+}

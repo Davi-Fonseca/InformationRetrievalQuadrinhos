@@ -152,7 +152,7 @@ def indexing(es: Elasticsearch, docs, index_name="hqs"):
 
 def main():
     INDEX_NAME = "hqs"
-    FILE_PATH = "../datasets/dataset.json"
+    FILE_PATH = "datasets/dataset.json"
 
     try:
         print("1. Tentando conexão com o Elasticsearch")

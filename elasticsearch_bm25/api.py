@@ -1,7 +1,7 @@
-from src.schemas import SearchResponse
-from fastapi import FastAPI
+from src.schemas import SearchResponse, HQ
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from src.busca import multi_match_search
+from src.busca import multi_match_search, get_hq_by_id
 from src.indexa import connect_elasticsearch
 
 app = FastAPI()
@@ -27,3 +27,12 @@ def search_hqs(q: str, skip: int = 0, size: int = 10):
     results = [hit["_source"] for hit in res.body["hits"]["hits"]]
 
     return {"data": results}
+
+@app.get("/hq/{id}", response_model=HQ)
+def get_hq(id: str):
+    res = get_hq_by_id(es_client, id)
+
+    if res and res.body.get("found"):
+        return res.body["_source"]
+    
+    raise HTTPException(status_code=404, detail="HQ não encontrada")

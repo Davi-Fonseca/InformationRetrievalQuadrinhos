@@ -2,7 +2,7 @@ import json
 
 from elasticsearch import Elasticsearch
 
-from indexa import connect_elasticsearch
+from .indexa import connect_elasticsearch
 
 
 def match_search(es: Elasticsearch, query, size=10):
@@ -26,7 +26,7 @@ def match_search(es: Elasticsearch, query, size=10):
     return res
 
 
-def multi_match_search(es: Elasticsearch, query, size=10):
+def multi_match_search(es: Elasticsearch, query, skip=0, size=10):
     print(f"\n{'='*80}")
     print(f"BUSCA MULTI-CAMPO: '{query}'")
     print(f"Campos: title (peso 2x), highlight, judging_organ")
@@ -42,8 +42,9 @@ def multi_match_search(es: Elasticsearch, query, size=10):
                     "type": "best_fields",
                 }
             },
-            "size": size,
         },
+        from_ = skip,
+        size = size,
     )
 
     return res

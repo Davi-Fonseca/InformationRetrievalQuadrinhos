@@ -122,6 +122,7 @@ def bulk_indexing_action(docs, index_name="hqs"):
             "_index": index_name,
             "_id": doc.get("id"),
             "_source": {
+                "id": doc.get("id"),
                 "comic_name": doc.get("comic_name"),
                 "issue_title": doc.get("issue_title"),
                 "issue_description": doc.get("issue_description"),

@@ -5,7 +5,7 @@ from elasticsearch import Elasticsearch
 from .indexa import connect_elasticsearch
 
 
-def match_search(es: Elasticsearch, query, size=10):
+def match_search(es: Elasticsearch, query, skip=0, size=10):
     print(f"\n{'='*80}")
     print(f"BUSCA SIMPLES: '{query}'")
     print(f"Tipo: Match Query | Campo: issue_title")
@@ -19,8 +19,9 @@ def match_search(es: Elasticsearch, query, size=10):
                     "issue_title": query,
                 }
             },
-            "size": size,
         },
+        from_=skip,
+        size=size,
     )
 
     return res

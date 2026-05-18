@@ -1,7 +1,7 @@
 from src.schemas import SearchResponse, HQ
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from src.busca import multi_match_search, get_hq_by_id
+from src.busca import multi_match_search, get_hq_by_id, match_search
 from src.indexa import connect_elasticsearch
 
 app = FastAPI()
@@ -20,8 +20,16 @@ app.add_middleware(
 def home():
     return {"message": "API do ElasticSearch rodando!"}
 
-@app.get("/search", response_model=SearchResponse)
-def search_hqs(q: str, skip: int = 0, size: int = 10):
+@app.get("/search/simple", response_model=SearchResponse)
+def search_hqs_simple(q: str, skip: int = 0, size: int = 10):
+    res = match_search(es_client, q, skip, size)
+
+    results = [hit["_source"] for hit in res.body["hits"]["hits"]]
+
+    return {"data": results}
+
+@app.get("/search/multi", response_model=SearchResponse)
+def search_hqs_multi(q: str, skip: int = 0, size: int = 10):
     res = multi_match_search(es_client, q, skip, size)
 
     results = [hit["_source"] for hit in res.body["hits"]["hits"]]

@@ -30,7 +30,7 @@ def match_search(es: Elasticsearch, query, skip=0, size=10):
 def multi_match_search(es: Elasticsearch, query, skip=0, size=10):
     print(f"\n{'='*80}")
     print(f"BUSCA MULTI-CAMPO: '{query}'")
-    print(f"Campos: title (peso 2x), highlight, judging_organ")
+    print(f"Campos: issue_title (peso 2x), issue_description, comic_name (peso 3x)")
     print("=" * 80)
 
     res = es.search(
@@ -44,11 +44,12 @@ def multi_match_search(es: Elasticsearch, query, skip=0, size=10):
                 }
             },
         },
-        from_ = skip,
-        size = size,
+        from_=skip,
+        size=size,
     )
 
     return res
+
 
 def get_hq_by_id(es: Elasticsearch, id: str):
     try:
@@ -56,6 +57,7 @@ def get_hq_by_id(es: Elasticsearch, id: str):
         return res
     except Exception as e:
         return None
+
 
 def main():
     es = connect_elasticsearch()

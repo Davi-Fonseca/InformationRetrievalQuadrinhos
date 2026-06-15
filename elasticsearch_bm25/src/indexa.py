@@ -1,122 +1,167 @@
-import json
 import itertools
+import json
+import os
 from elasticsearch import Elasticsearch
-from indexa import connect_elasticsearch
-
-import nltk
-from nltk.corpus import wordnet
-
-# Garante os dados do WordNet carregados
-try:
-    wordnet.ensure_loaded()
-except LookupError:
-    nltk.download('wordnet', quiet=True)
-    nltk.download('omw-1.4', quiet=True)
+from elasticsearch.helpers import bulk
 
 
-def expandir_query(query: str) -> str:
-    """Aplica Expansão Global de Query usando sinônimos do WordNet."""
-    palavras = query.strip().split()
-    termos_expandidos = []
-    vistos = set()
-
-    for palavra in palavras:
-        palavra_lower = palavra.lower()
-        if palavra_lower not in vistos:
-            vistos.add(palavra_lower)
-            termos_expandidos.append(palavra)
-
-        syns = wordnet.synsets(palavra_lower)
-        contador = 0
-        for syn in syns:
-            for lemma in syn.lemmas():
-                sinonimo = lemma.name().lower().replace("_", " ")
-                if " " not in sinonimo and sinonimo not in vistos:
-                    vistos.add(sinonimo)
-                    termos_expandidos.append(sinonimo)
-                    contador += 1
-                    if contador >= 2:
-                        break
-            if contador >= 2:
-                break
-    return " ".join(termos_expandidos)
+def connect_elasticsearch():
+    es = Elasticsearch(["http://localhost:9200"])
+    if es.ping():
+        print("✓ Conectado ao ElasticSearch com sucesso!")
+    else:
+        raise Exception("Erro ao conectar ao Elasticsearch.")
+    return es
 
 
-def multi_match_grid_search(
-    es: Elasticsearch, query, sw: bool, proc: str, sim: str, qe: bool, skip=0, size=5
-):
-    """Searches a specific index configuration, conditionally applying global query expansion."""
-    # Modifica a query se a expansão estiver ativa
-    if qe:
-        query = expandir_query(query)
-
+def create_grid_index(es: Elasticsearch, sw: bool, proc: str, sim: str):
+    # Generates a unique index name based on the configuration matrix
     index_name = f"hqs_sw_{'yes' if sw else 'no'}_proc_{proc}_sim_{sim}"
 
-    res = es.search(
-        index=index_name,
-        body={
-            "query": {
-                "multi_match": {
-                    "query": query,
-                    "fields": ["issue_title^2", "issue_description", "comic_name^3"],
-                    "type": "best_fields",
-                }
+    if es.indices.exists(index=index_name):
+        es.indices.delete(index=index_name)
+
+    # 1. Configure Filters dynamically based on Text Processing choice
+    filters = ["lowercase"]
+    if sw:
+        filters.append("english_stop")
+
+    if proc == "stemming":
+        filters.append("porter_stem")
+    elif proc == "lemmatization":
+        filters.append("kstem")  # Krovetz stemmer works as a linguistic lemmatizer proxy
+
+    # 2. Configure Similarity Model dynamically
+    similarity_config = {}
+    if sim == "bm25":
+        similarity_config = {"type": "BM25"}
+    elif sim == "jelinek_mercer":
+        similarity_config = {"type": "LMJelinekMercer", "lambda": 0.1}
+    elif sim == "dirichlet":
+        similarity_config = {"type": "LMDirichlet", "mu": 2000}
+
+    # 3. Assemble Complete Index Settings
+    index_settings = {
+        "settings": {
+            "number_of_shards": 1,
+            "number_of_replicas": 0,
+            "analysis": {
+                "filter": {
+                    "english_stop": {"type": "stop", "stopwords": "_english_"}
+                },
+                "analyzer": {
+                    "grid_analyzer": {
+                        "type": "custom",
+                        "tokenizer": "standard",
+                        "filter": filters,
+                    }
+                },
             },
+            "index": {"similarity": {"grid_similarity": similarity_config}},
         },
-        from_=skip,
-        size=size,
-    )
-    return res
+        "mappings": {
+            "properties": {
+                "id": {"type": "keyword"},
+                "comic_name": {
+                    "type": "text",
+                    "analyzer": "grid_analyzer",
+                    "similarity": "grid_similarity",
+                    "fields": {"keyword": {"type": "keyword"}},
+                },
+                "issue_title": {
+                    "type": "text",
+                    "analyzer": "grid_analyzer",
+                    "similarity": "grid_similarity",
+                },
+                "issue_description": {
+                    "type": "text",
+                    "analyzer": "grid_analyzer",
+                    "similarity": "grid_similarity",
+                },
+                "writer": {
+                    "type": "text",
+                    "analyzer": "grid_analyzer",
+                    "similarity": "grid_similarity",
+                    "fields": {"keyword": {"type": "keyword"}},
+                },
+                "penciler": {
+                    "type": "text",
+                    "analyzer": "grid_analyzer",
+                    "similarity": "grid_similarity",
+                    "fields": {"keyword": {"type": "keyword"}},
+                },
+                "cover_artist": {
+                    "type": "text",
+                    "analyzer": "grid_analyzer",
+                    "similarity": "grid_similarity",
+                    "fields": {"keyword": {"type": "keyword"}},
+                },
+            }
+        },
+    }
+
+    es.indices.create(index=index_name, body=index_settings)
+    return index_name
 
 
-def run_full_grid_evaluation(es: Elasticsearch, search_query: str):
-    """Executes the query across all 36 configurations to cross-examine top score profiles."""
-    sw_options = [True, False]
-    proc_options = ["none", "stemming", "lemmatization"]
-    sim_options = ["bm25", "jelinek_mercer", "dirichlet"]
-    qe_options = [True, False]  # Inclusão da dimensão de Query Expansion
+def load_json_file(file_path):
+    if not os.path.exists(file_path):
+        raise FileNotFoundError(f"Arquivo não encontrado em {file_path}")
+    with open(file_path, "r", encoding="utf-8") as file:
+        return json.load(file)
 
-    print(f"\nAVALIANDO QUERY ORIGINAL: '{search_query}' ATRAVÉS DO GRID SEARCH EXPANDIDO")
-    print(f"Query se expandida: '{expandir_query(search_query)}'")
-    print("-" * 95)
-    print(f"{'CONFIGURAÇÃO':<63} | {'MAX SCORE':<10} | {'TOP HIT ID':<10}")
-    print("-" * 95)
 
-    for sw, proc, sim, qe in itertools.product(
-        sw_options, proc_options, sim_options, qe_options
-    ):
-        sw_label = "Removed" if sw else "Unchanged"
-        qe_label = "Expanded" if qe else "Original"
-        cfg_desc = f"SW:{sw_label:<9} | Proc:{proc:<13} | Sim:{sim:<14} | QE:{qe_label:<8}"
-
-        try:
-            res = multi_match_grid_search(
-                es, search_query, sw, proc, sim, qe, size=1
-            )
-            hits = res["hits"]["hits"]
-
-            if hits:
-                max_score = round(res["hits"]["max_score"], 4)
-                top_hit_id = hits[0]["_id"]
-                print(f"{cfg_desc} | {max_score:<10} | {top_hit_id:<10}")
-            else:
-                print(f"{cfg_desc} | Sem resultados")
-        except Exception as e:
-            print(f"{cfg_desc} | Erro ao buscar: {e}")
+def bulk_indexing_action(docs, index_name):
+    for doc in docs:
+        yield {
+            "_index": index_name,
+            "_id": doc.get("id"),
+            "_source": {
+                "id": doc.get("id"),
+                "comic_name": doc.get("comic_name"),
+                "issue_title": doc.get("issue_title"),
+                "issue_description": doc.get("issue_description"),
+                "penciler": doc.get("penciler"),
+                "writer": doc.get("writer"),
+                "cover_artist": doc.get("cover_artist"),
+            },
+        }
 
 
 def main():
-    es = connect_elasticsearch()
+    FILE_PATH = "datasets/dataset.json"
 
-    print("\n--- BUSCA EM CONFIGURAÇÃO ÚNICA ESPECÍFICA (COM EXPANSÃO) ---")
-    resultado_unico = multi_match_grid_search(
-        es, query="thor", sw=True, proc="stemming", sim="bm25", qe=True
-    )
-    print(f"Total de hits na config escolhida: {resultado_unico['hits']['total']['value']}")
+    try:
+        es = connect_elasticsearch()
+        docs = load_json_file(FILE_PATH)
 
-    # Caso queira rodar o exame macro de 36 combinações para uma query no terminal:
-    # print("\n--- EXECUÇÃO COMPARATIVA EM TODO O GRID (36 CONFIGS) ---")
-    # run_full_grid_evaluation(es, "green lantern")
+        # Grid Search Hyperparameters
+        sw_options = [True, False]
+        proc_options = ["none", "stemming", "lemmatization"]
+        sim_options = ["bm25", "jelinek_mercer", "dirichlet"]
+
+        # Compute the Cartesian product of all configurations
+        combinations = list(
+            itertools.product(sw_options, proc_options, sim_options)
+        )
+        print(f"Iniciando criação e indexação de {len(combinations)} índices...")
+
+        for sw, proc, sim in combinations:
+            # Create configured index
+            idx_name = create_grid_index(es, sw, proc, sim)
+
+            # Bulk index documents into this configuration
+            success, _ = bulk(es, bulk_indexing_action(docs, idx_name), stats_only=True)
+            es.indices.refresh(index=idx_name)
+
+            print(f" ✓ Índice [{idx_name}] configurado e com {success} HQs.")
+
+        print("\n" + "=" * 60)
+        print("Grid Search Indexing Completo!")
+        print("=" * 60)
+
+    except Exception as e:
+        print(f"ERRO: {e}")
 
 
 if __name__ == "__main__":

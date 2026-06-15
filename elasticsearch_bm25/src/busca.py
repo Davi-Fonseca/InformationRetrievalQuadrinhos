@@ -1,11 +1,11 @@
 import json
 import itertools
 from elasticsearch import Elasticsearch
-from indexa import connect_elasticsearch
+from .indexa import connect_elasticsearch
 
 import nltk
 from nltk.corpus import wordnet
-
+from sentence_transformers import SentenceTransformer
 # Garante os dados do WordNet carregados
 try:
     wordnet.ensure_loaded()
@@ -13,6 +13,8 @@ except LookupError:
     nltk.download('wordnet', quiet=True)
     nltk.download('omw-1.4', quiet=True)
 
+
+_model = SentenceTransformer("all-MiniLM-L6-v2")
 
 def expandir_query(query: str) -> str:
     """Aplica Expansão Global de Query usando sinônimos do WordNet."""
@@ -104,6 +106,110 @@ def run_full_grid_evaluation(es: Elasticsearch, search_query: str):
         except Exception as e:
             print(f"{cfg_desc} | Erro ao buscar: {e}")
 
+def match_search(es: Elasticsearch, query: str, skip: int = 0, size: int = 10):
+    res = es.search(
+        index="hqs",
+        body={
+            "query": {
+                "match": {
+                    "issue_title": query,
+                }
+            },
+        },
+        from_=skip,
+        size=size,
+    )
+    return res
+
+
+def multi_match_search(es: Elasticsearch, query: str, skip: int = 0, size: int = 10):
+    res = es.search(
+        index="hqs",
+        body={
+            "query": {
+                "multi_match": {
+                    "query": query,
+                    "fields": ["issue_title^2", "issue_description", "comic_name^3"],
+                    "type": "best_fields",
+                }
+            },
+        },
+        from_=skip,
+        size=size,
+    )
+    return res
+
+
+def get_hq_by_id(es: Elasticsearch, id: str):
+    return es.get(index="hqs", id=id)
+
+
+def semantic_search(es: Elasticsearch, query: str, skip: int = 0, size: int = 10):
+    query_vector = _model.encode(query).tolist()
+
+    res  = es.search(
+        index="hqs_semantic",
+        body={
+            "knn": {
+                "query_vector": query_vector,
+                "field": "embedding",
+                "k": 5,
+                "num_candidates": 100,
+            }
+        },
+        from_=skip,
+        size=size,
+    )
+    return res
+
+def hybrid_search(es: Elasticsearch, query: str, skip: int = 0, size: int = 10):
+    """RRF manual: combina BM25 e kNN sem precisar de licença Enterprise."""
+    query_vector = _model.encode(query).tolist()
+    k = 60 
+
+    bm25_res = es.search(
+        index="hqs_semantic",
+        body={
+            "query": {
+                "multi_match": {
+                    "query": query,
+                    "fields": ["issue_title^2", "issue_description", "comic_name^3"],
+                }
+            }
+        },
+        size=50,
+    )
+
+    knn_res = es.search(
+        index="hqs_semantic",
+        body={
+            "knn": {
+                "field": "embedding",
+                "query_vector": query_vector,
+                "k": 50,
+                "num_candidates": 100,
+            }
+        },
+        size=50,
+    )
+
+    scores: dict[str, float] = {}
+    docs: dict[str, dict] = {}
+
+    for rank, hit in enumerate(bm25_res["hits"]["hits"]):
+        doc_id = hit["_id"]
+        scores[doc_id] = scores.get(doc_id, 0) + 1 / (k + rank + 1)
+        docs[doc_id] = hit["_source"]
+
+    for rank, hit in enumerate(knn_res["hits"]["hits"]):
+        doc_id = hit["_id"]
+        scores[doc_id] = scores.get(doc_id, 0) + 1 / (k + rank + 1)
+        docs[doc_id] = hit["_source"]
+
+    ranked = sorted(scores.items(), key=lambda x: x[1], reverse=True)
+    paginated = ranked[skip: skip + size]
+
+    return {"hits": {"hits": [{"_source": docs[doc_id]} for doc_id, _ in paginated]}}
 
 def main():
     es = connect_elasticsearch()

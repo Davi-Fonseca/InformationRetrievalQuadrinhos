@@ -23,7 +23,7 @@ QRELS_PATH    = "datasets/qrels.txt"
 RUN_PATH      = "datasets/run_bm25.txt"
 ES_INDEX      = "hqs"
 ES_URL        = "http://localhost:9200"
-RESULTS_PER_QUERY = 100   # top-100 é padrão para avaliação IR
+RESULTS_PER_QUERY = 100
 SYSTEM_NAME   = "bm25_elasticsearch"
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -31,7 +31,6 @@ es = Elasticsearch([ES_URL])
 
 
 def buscar_docs(query: str, size: int = 100) -> list[tuple[str, float]]:
-    """Busca documentos e retorna lista de (doc_id, score)."""
     res = es.search(
         index=ES_INDEX,
         body={
@@ -49,7 +48,6 @@ def buscar_docs(query: str, size: int = 100) -> list[tuple[str, float]]:
 
 
 def gerar_run_file():
-    """Gera o run file no formato TREC a partir das queries."""
     print("Carregando queries...")
     queries = []
     with open(QUERIES_PATH, encoding="utf-8") as f:
@@ -74,7 +72,6 @@ def gerar_run_file():
                 print(f"[{i+1}] {qid}: ERRO — {e}")
                 continue
 
-            # formato TREC run: qid  Q0  doc_id  rank  score  system_name
             for rank, (doc_id, score) in enumerate(resultados, start=1):
                 out.write(f"{qid}\tQ0\t{doc_id}\t{rank}\t{score:.4f}\t{SYSTEM_NAME}\n")
 
@@ -85,7 +82,6 @@ def gerar_run_file():
 
 
 def instalar_trec_eval():
-    """Instrução para instalar o trec_eval."""
     print("""
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   COMO INSTALAR O trec_eval (Linux/WSL)
@@ -95,7 +91,6 @@ def instalar_trec_eval():
   cd trec_eval
   make
   
-  # Mova o binário para um lugar acessível (opcional):
   sudo mv trec_eval /usr/local/bin/
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -103,11 +98,21 @@ def instalar_trec_eval():
 
 
 def avaliar(qrels: str, run: str):
-    """Tenta rodar trec_eval e exibe os resultados."""
     print("\nRodando avaliação com trec_eval...\n")
 
-    # Métricas principais
-    cmd_map  = ["trec_eval", "-m", "map", "-m", "P.10", "-m", "ndcg_cut.10", qrels, run]
+    cmd_map = [
+        "trec_eval",
+        "-m", "map",
+        "-m", "P.5",
+        "-m", "P.10",
+        "-m", "ndcg_cut.5",
+        "-m", "ndcg_cut.10",
+        "-m", "recip_rank",
+        "-m", "recall.10",
+        "-m", "Rprec",
+        qrels, run
+    ]
+
     cmd_full = ["trec_eval", "-q", "-m", "all_trec", qrels, run]
 
     try:
@@ -123,8 +128,8 @@ def avaliar(qrels: str, run: str):
     except FileNotFoundError:
         print("trec_eval não encontrado no PATH.")
         instalar_trec_eval()
-        print("Depois de instalar, rode manualmente:")
-        print(f"  trec_eval -m map -m P.10 -m ndcg_cut.10 {qrels} {run}")
+        print("Depois de instalar, rode manualmente pelo Ubuntu:")
+        print(f"  trec_eval -m map -m P.5 -m P.10 -m ndcg_cut.5 -m ndcg_cut.10 -m recip_rank -m recall.10 -m Rprec {qrels} {run}")
 
     except subprocess.CalledProcessError as e:
         print(f"Erro ao rodar trec_eval: {e.stderr}")

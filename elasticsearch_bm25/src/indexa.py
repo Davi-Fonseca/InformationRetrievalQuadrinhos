@@ -1,3 +1,4 @@
+import itertools
 import json
 import os
 
@@ -73,6 +74,92 @@ def create_index(es: Elasticsearch, index_name="hqs"):
 
     es.indices.create(index=index_name, body=index_settings)
     print(f"Índice '{index_name}' criado com sucesso!")
+
+
+def create_grid_index(es: Elasticsearch, sw: bool, proc: str, sim: str):
+    index_name = f"hqs_sw_{'yes' if sw else 'no'}_proc_{proc}_sim_{sim}"
+
+    if es.indices.exists(index=index_name):
+        es.indices.delete(index=index_name)
+
+    filters = ["lowercase"]
+    if sw:
+        filters.append("english_stop")
+
+    if proc == "stemming":
+        filters.append("porter_stem")
+    elif proc == "lemmatization":
+        filters.append("kstem")
+
+    similarity_config = {}
+    if sim == "bm25":
+        similarity_config = {"type": "BM25"}
+    elif sim == "jelinek_mercer":
+        similarity_config = {"type": "LMJelinekMercer", "lambda": 0.1}
+    elif sim == "dirichlet":
+        similarity_config = {"type": "LMDirichlet", "mu": 2000}
+
+    index_settings = {
+        "settings": {
+            "number_of_shards": 1,
+            "number_of_replicas": 0,
+            "analysis": {
+                "filter": {
+                    "english_stop": {"type": "stop", "stopwords": "_english_"}
+                },
+                "analyzer": {
+                    "grid_analyzer": {
+                        "type": "custom",
+                        "tokenizer": "standard",
+                        "filter": filters,
+                    }
+                },
+            },
+            "index": {"similarity": {"grid_similarity": similarity_config}},
+        },
+        "mappings": {
+            "properties": {
+                "id": {"type": "keyword"},
+                "comic_name": {
+                    "type": "text",
+                    "analyzer": "grid_analyzer",
+                    "similarity": "grid_similarity",
+                    "fields": {"keyword": {"type": "keyword"}},
+                },
+                "issue_title": {
+                    "type": "text",
+                    "analyzer": "grid_analyzer",
+                    "similarity": "grid_similarity",
+                },
+                "issue_description": {
+                    "type": "text",
+                    "analyzer": "grid_analyzer",
+                    "similarity": "grid_similarity",
+                },
+                "writer": {
+                    "type": "text",
+                    "analyzer": "grid_analyzer",
+                    "similarity": "grid_similarity",
+                    "fields": {"keyword": {"type": "keyword"}},
+                },
+                "penciler": {
+                    "type": "text",
+                    "analyzer": "grid_analyzer",
+                    "similarity": "grid_similarity",
+                    "fields": {"keyword": {"type": "keyword"}},
+                },
+                "cover_artist": {
+                    "type": "text",
+                    "analyzer": "grid_analyzer",
+                    "similarity": "grid_similarity",
+                    "fields": {"keyword": {"type": "keyword"}},
+                },
+            }
+        },
+    }
+
+    es.indices.create(index=index_name, body=index_settings)
+    return index_name
 
 
 def load_json_file(file_path):
@@ -194,6 +281,27 @@ def main():
 
         print("=" * 60)
         print("Indexação concluída")
+        print("=" * 60)
+        print()
+
+        print("5. Iniciando Grid Search de Hiperparâmetros")
+        sw_options = [True, False]
+        proc_options = ["none", "stemming", "lemmatization"]
+        sim_options = ["bm25", "jelinek_mercer", "dirichlet"]
+
+        combinations = list(itertools.product(sw_options, proc_options, sim_options))
+        print(f"Criando e indexando {len(combinations)} índices...")
+        print()
+
+        for sw, proc, sim in combinations:
+            idx_name = create_grid_index(es, sw, proc, sim)
+            success, _ = bulk(es, bulk_indexing_action(docs, idx_name), stats_only=True)
+            es.indices.refresh(index=idx_name)
+            print(f" ✓ Índice [{idx_name}] configurado e com {success} HQs.")
+
+        print()
+        print("=" * 60)
+        print("Grid Search Indexing Completo!")
         print("=" * 60)
 
     except Exception as e:

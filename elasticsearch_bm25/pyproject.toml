@@ -8,6 +8,7 @@ dependencies = [
     "elasticsearch>=9.4.0",
     "fastapi>=0.136.1",
     "mypy>=2.0.0",
+    "nltk>=3.9.4",
     "pandas>=3.0.2",
     "pylint>=4.0.5",
     "uvicorn[standard]>=0.47.0",

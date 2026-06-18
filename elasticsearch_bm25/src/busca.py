@@ -75,7 +75,7 @@ def run_full_grid_evaluation(es: Elasticsearch, search_query: str):
     """Executes the query across all 36 configurations to cross-examine top score profiles."""
     sw_options = [True, False]
     proc_options = ["none", "stemming", "lemmatization"]
-    sim_options = ["bm25", "jelinek_mercer", "dirichlet"]
+    sim_options = ["bm25", "jelinek_mercer", "dirichlet", "vsm"]
     qe_options = [True, False]  # Inclusão da dimensão de Query Expansion
 
     print(f"\nAVALIANDO QUERY ORIGINAL: '{search_query}' ATRAVÉS DO GRID SEARCH EXPANDIDO")

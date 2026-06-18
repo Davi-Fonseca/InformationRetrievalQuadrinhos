@@ -172,7 +172,7 @@ def main():
     # Hiperparâmetros do Grid Search expandidos (36 combinações)
     sw_options = [True, False]
     proc_options = ["none", "stemming", "lemmatization"]
-    sim_options = ["bm25", "jelinek_mercer", "dirichlet"]
+    sim_options = ["bm25", "jelinek_mercer", "dirichlet", "vsm"]
     qe_options = [True, False]  # Nova dimensão: Query Expansion ligado/desligado
 
     combinations = list(itertools.product(sw_options, proc_options, sim_options, qe_options))

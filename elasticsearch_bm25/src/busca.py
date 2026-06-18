@@ -1,5 +1,9 @@
 import json
 import itertools
+from pathlib import Path
+
+import numpy as np
+import xgboost as xgb
 from elasticsearch import Elasticsearch
 from .indexa import connect_elasticsearch
 
@@ -14,7 +18,16 @@ except LookupError:
     nltk.download('omw-1.4', quiet=True)
 
 
-_model = SentenceTransformer("BAAI/bge-base-en-v1.5")
+_model = SentenceTransformer("all-MiniLM-L6-v2")
+
+_LTR_FEATURES = [
+    "bm25_score", "bm25_rank",
+    "semantic_score", "semantic_rank",
+    "title_bm25_score", "comic_name_bm25_score", "description_bm25_score",
+    "rank_diff",
+]
+_ltr_model = xgb.Booster()
+_ltr_model.load_model(Path(__file__).parent.parent / "datasets" / "ltr_model.json")
 
 def expandir_query(query: str) -> str:
     """Aplica Expansão Global de Query usando sinônimos do WordNet."""
@@ -210,6 +223,62 @@ def hybrid_search(es: Elasticsearch, query: str, skip: int = 0, size: int = 10):
     paginated = ranked[skip: skip + size]
 
     return {"hits": {"hits": [{"_source": docs[doc_id]} for doc_id, _ in paginated]}}
+
+def ltr_search(es: Elasticsearch, query: str, skip: int = 0, size: int = 10):
+    TOP_K = 100
+
+    bm25_res = es.search(
+        index="hqs",
+        body={"query": {"multi_match": {"query": query, "fields": ["issue_title^2", "issue_description", "comic_name^3"], "type": "best_fields"}}},
+        size=TOP_K,
+    )
+    bm25_results = [(h["_id"], h["_score"]) for h in bm25_res["hits"]["hits"]]
+
+    vector = _model.encode(query).tolist()
+    sem_res = es.search(
+        index="hqs_semantic",
+        body={"knn": {"field": "embedding", "query_vector": vector, "k": TOP_K, "num_candidates": TOP_K * 2}},
+        size=TOP_K,
+    )
+    sem_results = [(h["_id"], h["_score"]) for h in sem_res["hits"]["hits"]]
+
+    def field_scores(field):
+        r = es.search(index="hqs", body={"query": {"match": {field: query}}}, size=TOP_K)
+        return {h["_id"]: h["_score"] for h in r["hits"]["hits"]}
+
+    title_scores  = field_scores("issue_title")
+    comic_scores  = field_scores("comic_name")
+    desc_scores   = field_scores("issue_description")
+
+    bm25_map = {doc_id: (score, rank + 1) for rank, (doc_id, score) in enumerate(bm25_results)}
+    sem_map  = {doc_id: (score, rank + 1) for rank, (doc_id, score) in enumerate(sem_results)}
+    candidates = list(set(bm25_map) | set(sem_map))
+
+    rows = []
+    for doc_id in candidates:
+        bs, br = bm25_map.get(doc_id, (0.0, 0))
+        ss, sr = sem_map.get(doc_id,  (0.0, 0))
+        rows.append([bs, br, ss, sr,
+                     title_scores.get(doc_id, 0.0),
+                     comic_scores.get(doc_id, 0.0),
+                     desc_scores.get(doc_id, 0.0),
+                     abs(br - sr)])
+
+    X = np.array(rows, dtype=np.float32)
+    ltr_scores = _ltr_model.predict(xgb.DMatrix(X, feature_names=_LTR_FEATURES))
+
+    ranked = sorted(zip(candidates, ltr_scores), key=lambda x: x[1], reverse=True)
+    page = ranked[skip: skip + size]
+
+    doc_ids_page = [doc_id for doc_id, _ in page]
+    if not doc_ids_page:
+        return {"hits": {"hits": []}}
+
+    mget_res = es.mget(index="hqs", body={"ids": doc_ids_page})
+    sources = {d["_id"]: d["_source"] for d in mget_res["docs"] if d.get("found")}
+
+    return {"hits": {"hits": [{"_source": sources[doc_id]} for doc_id, _ in page if doc_id in sources]}}
+
 
 def main():
     es = connect_elasticsearch()

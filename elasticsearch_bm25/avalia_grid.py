@@ -9,7 +9,6 @@ import itertools
 import os
 import subprocess
 from pathlib import Path
-from elasticsearch import Elasticsearch
 
 # Importações do NLTK para Expansão Global de Query
 import nltk
@@ -22,15 +21,14 @@ except LookupError:
     nltk.download('wordnet', quiet=True)
     nltk.download('omw-1.4', quiet=True)
 
+from src.indexa import connect_elasticsearch
+
 # ── Configurações ────────────────────────────────────────────────────────────
 QUERIES_PATH  = "datasets/queries.tsv"
 QRELS_PATH    = "datasets/qrels.txt"
 RUNS_DIR      = "datasets/runs"       # Pasta para organizar os 36 run files
-ES_URL        = "http://localhost:9200"
 RESULTS_PER_QUERY = 100               # Padrão top-100 para avaliação de RI
 # ─────────────────────────────────────────────────────────────────────────────
-
-es = Elasticsearch([ES_URL])
 
 
 def expandir_query(query: str) -> str:
@@ -100,7 +98,7 @@ def carregar_queries() -> list[dict]:
     return queries
 
 
-def gerar_run_file(queries: list[dict], sw: bool, proc: str, sim: str, qe: bool) -> Path:
+def gerar_run_file(es, queries: list[dict], sw: bool, proc: str, sim: str, qe: bool) -> Path:
     """Gera um run file TREC específico para uma configuração do grid."""
     sw_str = "yes" if sw else "no"
     qe_str = "expanded" if qe else "original"
@@ -158,6 +156,8 @@ def avaliar_config(qrels: str, run_path: Path) -> dict:
 
 
 def main():
+    es = connect_elasticsearch()
+
     # print(expandir_query("morbius the living vampire blade battle"))  # Teste rápido da função de expansão de query
     # exit(0)
 
@@ -187,7 +187,7 @@ def main():
         
         print(f"[{idx}/{len(combinations)}] Stopwords: {sw_label} | Proc: {proc} | Sim: {sim} | QE: {qe_label}")
         
-        run_path = gerar_run_file(queries, sw, proc, sim, qe)
+        run_path = gerar_run_file(es, queries, sw, proc, sim, qe)
         
         if run_path and trec_eval_available:
             metrics = avaliar_config(QRELS_PATH, run_path)

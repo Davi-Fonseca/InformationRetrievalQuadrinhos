@@ -1,14 +1,20 @@
 import itertools
 import json
 import os
+import numpy as np
 
 from elasticsearch import Elasticsearch
 from elasticsearch.helpers import bulk
-from sentence_transformers import SentenceTransformer
+embedding_model = None
 
 
-MODEL_NAME = "all-MiniLM-L6-v2"
-embedding_model = SentenceTransformer(MODEL_NAME)
+def get_embedding_model():
+    """Carrega o modelo de embeddings apenas na primeira chamada (lazy singleton)."""
+    global embedding_model
+    if embedding_model is None:
+        from sentence_transformers import SentenceTransformer
+        embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
+    return embedding_model
 
 
 def connect_elasticsearch():
@@ -226,7 +232,7 @@ def create_semantic_index(es: Elasticsearch):
     index_name = "hqs_semantic"
 
     if es.indices.exists(index=index_name):
-        es.indices.delete(index=index_name)
+        return index_name
 
     mapping = {
         "mappings": {
@@ -253,20 +259,46 @@ def create_semantic_index(es: Elasticsearch):
 
 
 def index_with_embeddings(es: Elasticsearch, dataset_path: str):
-    index_name = create_semantic_index(es)
+    index_name = "hqs_semantic"
 
+    print("Carregando dataset...")
     with open(dataset_path, "r", encoding="utf-8") as f:
         docs = json.load(f)
 
+    # Verifica se o índice já está populado
+    if es.indices.exists(index=index_name):
+        count = es.count(index=index_name).get("count", 0)
+        if count == len(docs):
+            print(f"✅ O índice semântico já existe com {count} documentos! Pulando recomputação pesada.")
+            return
+
+    # Se não existir, cria o mapping
+    create_semantic_index(es)
+
+    embeddings_file = "datasets/embeddings.npy"
+    if os.path.exists(embeddings_file):
+        print("⚡ Arquivo de embeddings pré-calculados encontrado! Lendo direto do disco...")
+        embeddings = np.load(embeddings_file)
+    else:
+        # Prepara os textos de todos os documentos
+        texts = [f"{doc.get('comic_name', '')} {doc.get('issue_title', '')} {doc.get('issue_description', '')}" for doc in docs]
+
+        print(f"Gerando embeddings para {len(docs)} documentos (isso pode demorar um pouco)...")
+        model = get_embedding_model()
+        # O modelo processa a lista inteira internamente em batches otimizados e exibe barra de progresso
+        embeddings = model.encode(texts, batch_size=64, show_progress_bar=True)
+        
+        # Salva para as próximas vezes
+        np.save(embeddings_file, embeddings)
+        print("✅ Embeddings salvos em 'datasets/embeddings.npy' para acelerar futuras execuções!")
+
+    print("Enviando para o Elasticsearch...")
     actions = []
-    for doc in docs:
-        text = f"{doc.get('comic_name', '')} {doc.get('issue_title', '')} {doc.get('issue_description', '')}"
-        vector = embedding_model.encode(text).tolist()
-
+    for doc, vector in zip(docs, embeddings):
         actions.append({"index": {"_index": index_name, "_id": str(doc["id"])}})
-        actions.append({**doc, "embedding": vector})
+        actions.append({**doc, "embedding": vector.tolist()})
 
-        if len(actions) >= 200:
+        if len(actions) >= 400:  # 200 docs * 2 (index_action + data)
             es.bulk(body=actions)
             actions = []
 

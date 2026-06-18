@@ -1,11 +1,10 @@
 import json
 import itertools
 from elasticsearch import Elasticsearch
-from .indexa import connect_elasticsearch
+from .indexa import connect_elasticsearch, get_embedding_model
 
 import nltk
 from nltk.corpus import wordnet
-from sentence_transformers import SentenceTransformer
 # Garante os dados do WordNet carregados
 try:
     wordnet.ensure_loaded()
@@ -13,8 +12,6 @@ except LookupError:
     nltk.download('wordnet', quiet=True)
     nltk.download('omw-1.4', quiet=True)
 
-
-_model = SentenceTransformer("all-MiniLM-L6-v2")
 
 def expandir_query(query: str) -> str:
     """Aplica Expansão Global de Query usando sinônimos do WordNet."""
@@ -145,7 +142,7 @@ def get_hq_by_id(es: Elasticsearch, id: str):
 
 
 def semantic_search(es: Elasticsearch, query: str, skip: int = 0, size: int = 10):
-    query_vector = _model.encode(query).tolist()
+    query_vector = get_embedding_model().encode(query).tolist()
 
     res  = es.search(
         index="hqs_semantic",
@@ -164,7 +161,7 @@ def semantic_search(es: Elasticsearch, query: str, skip: int = 0, size: int = 10
 
 def hybrid_search(es: Elasticsearch, query: str, skip: int = 0, size: int = 10):
     """RRF manual: combina BM25 e kNN sem precisar de licença Enterprise."""
-    query_vector = _model.encode(query).tolist()
+    query_vector = get_embedding_model().encode(query).tolist()
     k = 60 
 
     bm25_res = es.search(

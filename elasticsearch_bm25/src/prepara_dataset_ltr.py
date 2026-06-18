@@ -52,7 +52,7 @@ def fetch_bm25(es: Elasticsearch, query: str):
         )
         return [(hit["_id"], hit["_score"]) for hit in res["hits"]["hits"]]
     except Exception as e:
-        print(f"  [ERRO BM25] {e}")
+        print(e)
         return []
 
 
@@ -73,11 +73,11 @@ def fetch_semantic(es: Elasticsearch, model: SentenceTransformer, query: str):
         )
         return [(hit["_id"], hit["_score"]) for hit in res["hits"]["hits"]]
     except Exception as e:
-        print(f"  [ERRO SEMÂNTICO] {e}")
+        print(e)
         return []
 
 
-def fetch_field_bm25(es: Elasticsearch, query: str, field: str) -> dict[str, float]:
+def fetch_field_bm25(es: Elasticsearch, query: str, field: str):
     try:
         res = es.search(
             index=BM25_INDEX,

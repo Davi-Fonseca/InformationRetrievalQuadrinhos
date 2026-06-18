@@ -222,7 +222,7 @@ def create_semantic_index(es: Elasticsearch):
                 "cover_artist":      {"type": "text"},
                 "embedding": {
                     "type": "dense_vector",
-                    "dims": 768,
+                    "dims": 384,
                     "index": True,
                     "similarity": "cosine",
                 },
@@ -302,6 +302,11 @@ def main():
         print()
         print("=" * 60)
         print("Grid Search Indexing Completo!")
+        print("=" * 60)
+
+        print()
+        print("6. Criando índice semântico (embeddings all-MiniLM-L6-v2)")
+        index_with_embeddings(es, FILE_PATH)
         print("=" * 60)
 
     except Exception as e:

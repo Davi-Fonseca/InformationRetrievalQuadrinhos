@@ -15,7 +15,9 @@ SEED         = 42
 
 
 def split_by_query(df: pd.DataFrame, train_ratio: float, seed: int):
-    query_ids = df["query_id"].unique()
+    queries_with_relevant = df.groupby("query_id")["relevance"].max()
+    valid_ids = queries_with_relevant[queries_with_relevant > 0].index
+    query_ids = df[df["query_id"].isin(valid_ids)]["query_id"].unique()
     rng = np.random.default_rng(seed)
     rng.shuffle(query_ids)
 

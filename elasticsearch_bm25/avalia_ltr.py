@@ -28,8 +28,8 @@ TRAIN_RATIO    = 0.8
 SEED           = 42
 
 
-def load_qrels(path: str) -> dict[str, dict[str, int]]:
-    qrels: dict[str, dict[str, int]] = defaultdict(dict)
+def load_qrels(path: str):
+    qrels = defaultdict(dict)
     with open(path, encoding="utf-8") as f:
         for line in f:
             parts = line.strip().split()
@@ -48,7 +48,7 @@ def get_test_query_ids(qrels: dict) -> set[str]:
     return set(query_ids[n_train:])
 
 
-def load_queries(path: str) -> list[tuple[str, str]]:
+def load_queries(path: str):
     queries = []
     with open(path, encoding="utf-8") as f:
         for line in f:
@@ -58,7 +58,7 @@ def load_queries(path: str) -> list[tuple[str, str]]:
     return queries
 
 
-def fetch_bm25(es: Elasticsearch, query: str) -> list[tuple[str, float]]:
+def fetch_bm25(es: Elasticsearch, query: str):
     try:
         res = es.search(
             index=BM25_INDEX,
@@ -78,7 +78,7 @@ def fetch_bm25(es: Elasticsearch, query: str) -> list[tuple[str, float]]:
         return []
 
 
-def fetch_semantic(es: Elasticsearch, model: SentenceTransformer, query: str) -> list[tuple[str, float]]:
+def fetch_semantic(es: Elasticsearch, model: SentenceTransformer, query: str):
     try:
         vector = model.encode(query).tolist()
         res = es.search(
@@ -98,7 +98,7 @@ def fetch_semantic(es: Elasticsearch, model: SentenceTransformer, query: str) ->
         return []
 
 
-def fetch_field_bm25(es: Elasticsearch, query: str, field: str) -> dict[str, float]:
+def fetch_field_bm25(es: Elasticsearch, query: str, field: str):
     try:
         res = es.search(
             index=BM25_INDEX,
@@ -115,7 +115,7 @@ def build_features(
     sem_results: list,
     title_scores: dict[str, float],
     comic_name_scores: dict[str, float],
-) -> tuple[list[str], np.ndarray]:
+):
     bm25_map = {doc_id: (score, rank + 1) for rank, (doc_id, score) in enumerate(bm25_results)}
     sem_map  = {doc_id: (score, rank + 1) for rank, (doc_id, score) in enumerate(sem_results)}
     candidates = list(set(bm25_map.keys()) | set(sem_map.keys()))
@@ -132,13 +132,12 @@ def build_features(
 
 def ndcg_at_k(ranked_docs: list[str], qrel: dict[str, int], k: int = 10) -> float:
     dcg = sum(
-        (1 / math.log2(i + 2))
+        qrel.get(doc, 0) / math.log2(i + 2)
         for i, doc in enumerate(ranked_docs[:k])
-        if qrel.get(doc, 0) > 0
     )
     ideal = sorted(qrel.values(), reverse=True)
     idcg = sum(
-        (rel / math.log2(i + 2))
+        rel / math.log2(i + 2)
         for i, rel in enumerate(ideal[:k])
         if rel > 0
     )
@@ -159,24 +158,57 @@ def average_precision(ranked_docs: list[str], qrel: dict[str, int]) -> float:
     return ap / total if total > 0 else 0.0
 
 
+def reciprocal_rank(ranked_docs: list[str], qrel: dict[str, int]) -> float:
+    for i, doc in enumerate(ranked_docs):
+        if qrel.get(doc, 0) > 0:
+            return 1.0 / (i + 1)
+    return 0.0
+
+
+def recall_at_k(ranked_docs: list[str], qrel: dict[str, int], k: int = 10) -> float:
+    total = sum(1 for v in qrel.values() if v > 0)
+    if total == 0:
+        return 0.0
+    retrieved = sum(1 for doc in ranked_docs[:k] if qrel.get(doc, 0) > 0)
+    return retrieved / total
+
+
+def r_precision(ranked_docs: list[str], qrel: dict[str, int]) -> float:
+    r = sum(1 for v in qrel.values() if v > 0)
+    if r == 0:
+        return 0.0
+    return sum(1 for doc in ranked_docs[:r] if qrel.get(doc, 0) > 0) / r
+
+
 def calcular_metricas(label: str, resultados: dict[str, list[str]], qrels: dict):
-    ndcgs, maps, ps = [], [], []
+    ndcgs5, ndcgs10, maps, ps5, ps10, mrrs, recalls, rprecs = [], [], [], [], [], [], [], []
     for qid, docs in resultados.items():
         if qid not in qrels:
             continue
         qrel = qrels[qid]
-        ndcgs.append(ndcg_at_k(docs, qrel))
+        ndcgs5.append(ndcg_at_k(docs, qrel, k=5))
+        ndcgs10.append(ndcg_at_k(docs, qrel, k=10))
         maps.append(average_precision(docs, qrel))
-        ps.append(precision_at_k(docs, qrel))
+        ps5.append(precision_at_k(docs, qrel, k=5))
+        ps10.append(precision_at_k(docs, qrel, k=10))
+        mrrs.append(reciprocal_rank(docs, qrel))
+        recalls.append(recall_at_k(docs, qrel, k=10))
+        rprecs.append(r_precision(docs, qrel))
 
-    if not ndcgs:
+    if not maps:
         print(f"\n{label}: nenhuma query de teste encontrada no qrels.")
         return
 
-    print(f"\n── {label} ({len(ndcgs)} queries) ─────────────────────")
-    print(f"  MAP:     {sum(maps)/len(maps):.4f}")
-    print(f"  P@10:    {sum(ps)/len(ps):.4f}")
-    print(f"  NDCG@10: {sum(ndcgs)/len(ndcgs):.4f}")
+    n = len(maps)
+    print(f"\n── {label} ({n} queries) ─────────────────────")
+    print(f"  MAP:        {sum(maps)/n:.4f}")
+    print(f"  P@5:        {sum(ps5)/n:.4f}")
+    print(f"  P@10:       {sum(ps10)/n:.4f}")
+    print(f"  NDCG@5:     {sum(ndcgs5)/n:.4f}")
+    print(f"  NDCG@10:    {sum(ndcgs10)/n:.4f}")
+    print(f"  MRR:        {sum(mrrs)/n:.4f}")
+    print(f"  Recall@10:  {sum(recalls)/n:.4f}")
+    print(f"  R-Prec:     {sum(rprecs)/n:.4f}")
 
 
 def main():
@@ -186,7 +218,7 @@ def main():
         raise SystemExit("Elasticsearch não está rodando em localhost:9200")
 
     print("Carregando modelo semântico...")
-    sem_model = SentenceTransformer("BAAI/bge-base-en-v1.5")
+    sem_model = SentenceTransformer("all-MiniLM-L6-v2")
 
     print(f"Carregando modelo LTR: {MODEL_PATH}")
     ltr_model = xgb.Booster()
@@ -220,20 +252,22 @@ def main():
 
             bm25_docs = [doc_id for doc_id, _ in bm25_results]
             bm25_resultados[qid] = bm25_docs
+
             for rank, (doc_id, score) in enumerate(bm25_results, start=1):
                 bm25_out.write(f"{qid}\tQ0\t{doc_id}\t{rank}\t{score:.6f}\tbm25\n")
 
             doc_ids, X = build_features(bm25_results, sem_results, title_scores, comic_name_scores)
             scores  = ltr_model.predict(xgb.DMatrix(X, feature_names=FEATURES))
+
             ranked  = sorted(zip(doc_ids, scores), key=lambda x: x[1], reverse=True)
             ltr_docs = [doc_id for doc_id, _ in ranked]
             ltr_resultados[qid] = ltr_docs
+
             for rank, (doc_id, score) in enumerate(ranked, start=1):
                 ltr_out.write(f"{qid}\tQ0\t{doc_id}\t{rank}\t{score:.6f}\tltr_xgboost\n")
 
     calcular_metricas("BM25", bm25_resultados, qrels)
     calcular_metricas("LTR", ltr_resultados, qrels)
-
 
 if __name__ == "__main__":
     main()

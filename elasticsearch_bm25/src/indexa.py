@@ -98,6 +98,24 @@ def create_grid_index(es: Elasticsearch, sw: bool, proc: str, sim: str):
         similarity_config = {"type": "LMJelinekMercer", "lambda": 0.1}
     elif sim == "dirichlet":
         similarity_config = {"type": "LMDirichlet", "mu": 2000}
+    elif sim == "vsm":
+        similarity_config = {
+            "type": "scripted",
+            "weight_script": {
+                "source": (
+                    "double idf = Math.log((field.docCount + 1.0)"
+                    " / (term.docFreq + 1.0)) + 1.0;"
+                    " return query.boost * idf;"
+                )
+            },
+            "script": {
+                "source": (
+                    "double tf = Math.sqrt(doc.freq);"
+                    " double norm = 1.0 / Math.sqrt(doc.length);"
+                    " return weight * tf * norm;"
+                )
+            },
+        }
 
     index_settings = {
         "settings": {
@@ -287,7 +305,7 @@ def main():
         print("5. Iniciando Grid Search de Hiperparâmetros")
         sw_options = [True, False]
         proc_options = ["none", "stemming", "lemmatization"]
-        sim_options = ["bm25", "jelinek_mercer", "dirichlet"]
+        sim_options = ["bm25", "jelinek_mercer", "dirichlet", "vsm"]
 
         combinations = list(itertools.product(sw_options, proc_options, sim_options))
         print(f"Criando e indexando {len(combinations)} índices...")

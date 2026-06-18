@@ -1,10 +1,11 @@
 import itertools
 import json
 import os
-import numpy as np
 
+import numpy as np
 from elasticsearch import Elasticsearch
 from elasticsearch.helpers import bulk
+
 embedding_model = None
 
 
@@ -13,7 +14,8 @@ def get_embedding_model():
     global embedding_model
     if embedding_model is None:
         from sentence_transformers import SentenceTransformer
-        embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
+
+        embedding_model = SentenceTransformer("all-MiniLM-L6-v2", device="cpu")
     return embedding_model
 
 
@@ -128,9 +130,7 @@ def create_grid_index(es: Elasticsearch, sw: bool, proc: str, sim: str):
             "number_of_shards": 1,
             "number_of_replicas": 0,
             "analysis": {
-                "filter": {
-                    "english_stop": {"type": "stop", "stopwords": "_english_"}
-                },
+                "filter": {"english_stop": {"type": "stop", "stopwords": "_english_"}},
                 "analyzer": {
                     "grid_analyzer": {
                         "type": "custom",
@@ -237,13 +237,13 @@ def create_semantic_index(es: Elasticsearch):
     mapping = {
         "mappings": {
             "properties": {
-                "id":                {"type": "keyword"},
-                "comic_name":        {"type": "text"},
-                "issue_title":       {"type": "text"},
+                "id": {"type": "keyword"},
+                "comic_name": {"type": "text"},
+                "issue_title": {"type": "text"},
                 "issue_description": {"type": "text"},
-                "writer":            {"type": "text"},
-                "penciler":          {"type": "text"},
-                "cover_artist":      {"type": "text"},
+                "writer": {"type": "text"},
+                "penciler": {"type": "text"},
+                "cover_artist": {"type": "text"},
                 "embedding": {
                     "type": "dense_vector",
                     "dims": 384,
@@ -269,7 +269,9 @@ def index_with_embeddings(es: Elasticsearch, dataset_path: str):
     if es.indices.exists(index=index_name):
         count = es.count(index=index_name).get("count", 0)
         if count == len(docs):
-            print(f"✅ O índice semântico já existe com {count} documentos! Pulando recomputação pesada.")
+            print(
+                f"✅ O índice semântico já existe com {count} documentos! Pulando recomputação pesada."
+            )
             return
 
     # Se não existir, cria o mapping
@@ -277,20 +279,29 @@ def index_with_embeddings(es: Elasticsearch, dataset_path: str):
 
     embeddings_file = "datasets/embeddings.npy"
     if os.path.exists(embeddings_file):
-        print("⚡ Arquivo de embeddings pré-calculados encontrado! Lendo direto do disco...")
+        print(
+            "⚡ Arquivo de embeddings pré-calculados encontrado! Lendo direto do disco..."
+        )
         embeddings = np.load(embeddings_file)
     else:
         # Prepara os textos de todos os documentos
-        texts = [f"{doc.get('comic_name', '')} {doc.get('issue_title', '')} {doc.get('issue_description', '')}" for doc in docs]
+        texts = [
+            f"{doc.get('comic_name', '')} {doc.get('issue_title', '')} {doc.get('issue_description', '')}"
+            for doc in docs
+        ]
 
-        print(f"Gerando embeddings para {len(docs)} documentos (isso pode demorar um pouco)...")
+        print(
+            f"Gerando embeddings para {len(docs)} documentos (isso pode demorar um pouco)..."
+        )
         model = get_embedding_model()
         # O modelo processa a lista inteira internamente em batches otimizados e exibe barra de progresso
         embeddings = model.encode(texts, batch_size=64, show_progress_bar=True)
-        
+
         # Salva para as próximas vezes
         np.save(embeddings_file, embeddings)
-        print("✅ Embeddings salvos em 'datasets/embeddings.npy' para acelerar futuras execuções!")
+        print(
+            "✅ Embeddings salvos em 'datasets/embeddings.npy' para acelerar futuras execuções!"
+        )
 
     print("Enviando para o Elasticsearch...")
     actions = []

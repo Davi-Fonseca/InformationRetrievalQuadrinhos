@@ -12,6 +12,7 @@ from pathlib import Path
 
 # Importações do NLTK para Expansão Global de Query
 import nltk
+from elasticsearch import Elasticsearch
 from nltk.corpus import wordnet
 
 # Garante o download do WordNet silenciosamente se não estiver disponível
@@ -21,7 +22,7 @@ except LookupError:
     nltk.download('wordnet', quiet=True)
     nltk.download('omw-1.4', quiet=True)
 
-from src.indexa import connect_elasticsearch
+from src.indexa import connect_elasticsearch, get_embedding_model
 
 # ── Configurações ────────────────────────────────────────────────────────────
 QUERIES_PATH  = "datasets/queries.tsv"
@@ -63,25 +64,81 @@ def expandir_query(query: str) -> str:
     return " ".join(termos_expandidos)
 
 
-def buscar_docs(es: Elasticsearch, query: str, index_name: str, qe: bool, size: int = 100) -> list[tuple[str, float]]:
+def buscar_docs(es: Elasticsearch, query: str, index_name: str, sim: str, qe: bool, size: int = 100) -> list[tuple[str, float]]:
     """Busca documentos aplicando a expansão de query na entrada se ativado."""
     if qe:
         query = expandir_query(query)
 
-    res = es.search(
-        index=index_name,
-        body={
-            "query": {
-                "multi_match": {
-                    "query": query,
-                    "fields": ["issue_title^2", "issue_description", "comic_name^3"],
-                    "type": "best_fields",
+    if sim == "semantic":
+        query_vector = get_embedding_model().encode(query).tolist()
+        res = es.search(
+            index="hqs_semantic",
+            body={
+                "knn": {
+                    "query_vector": query_vector,
+                    "field": "embedding",
+                    "k": size,
+                    "num_candidates": size * 2,
                 }
-            }
-        },
-        size=size,
-    )
-    return [(hit["_id"], hit["_score"]) for hit in res["hits"]["hits"]]
+            },
+            size=size,
+        )
+        return [(hit["_id"], hit["_score"]) for hit in res["hits"]["hits"]]
+
+    elif sim == "hybrid":
+        query_vector = get_embedding_model().encode(query).tolist()
+        k_rrf = 60
+        bm25_res = es.search(
+            index="hqs_semantic",
+            body={
+                "query": {
+                    "multi_match": {
+                        "query": query,
+                        "fields": ["issue_title^2", "issue_description", "comic_name^3"],
+                        "type": "best_fields",
+                    }
+                }
+            },
+            size=size,
+        )
+        knn_res = es.search(
+            index="hqs_semantic",
+            body={
+                "knn": {
+                    "field": "embedding",
+                    "query_vector": query_vector,
+                    "k": size,
+                    "num_candidates": size * 2,
+                }
+            },
+            size=size,
+        )
+        scores: dict[str, float] = {}
+        for rank, hit in enumerate(bm25_res["hits"]["hits"]):
+            doc_id = hit["_id"]
+            scores[doc_id] = scores.get(doc_id, 0) + 1 / (k_rrf + rank + 1)
+        for rank, hit in enumerate(knn_res["hits"]["hits"]):
+            doc_id = hit["_id"]
+            scores[doc_id] = scores.get(doc_id, 0) + 1 / (k_rrf + rank + 1)
+        
+        ranked = sorted(scores.items(), key=lambda x: x[1], reverse=True)
+        return ranked[:size]
+
+    else:
+        res = es.search(
+            index=index_name,
+            body={
+                "query": {
+                    "multi_match": {
+                        "query": query,
+                        "fields": ["issue_title^2", "issue_description", "comic_name^3"],
+                        "type": "best_fields",
+                    }
+                }
+            },
+            size=size,
+        )
+        return [(hit["_id"], hit["_score"]) for hit in res["hits"]["hits"]]
 
 
 def carregar_queries() -> list[dict]:
@@ -119,7 +176,7 @@ def gerar_run_file(es, queries: list[dict], sw: bool, proc: str, sim: str, qe: b
             query = q["query"]
 
             try:
-                resultados = buscar_docs(es, query, index_name, qe, RESULTS_PER_QUERY)
+                resultados = buscar_docs(es, query, index_name, sim, qe, RESULTS_PER_QUERY)
             except Exception as e:
                 print(f"Erro ao buscar no índice {index_name}: {e}")
                 return None
@@ -132,7 +189,7 @@ def gerar_run_file(es, queries: list[dict], sw: bool, proc: str, sim: str, qe: b
 
 def parse_trec_eval_output(stdout_text: str) -> dict:
     """Extrai as métricas de interesse do output de texto do trec_eval."""
-    metrics = {"map": 0.0, "P_10": 0.0, "ndcg_cut_10": 0.0}
+    metrics = {"map": 0.0, "P_10": 0.0, "ndcg_cut_10": 0.0, "recall_100": 0.0, "recip_rank": 0.0}
     for line in stdout_text.splitlines():
         parts = line.split()
         if len(parts) >= 3:
@@ -145,7 +202,7 @@ def parse_trec_eval_output(stdout_text: str) -> dict:
 
 def avaliar_config(qrels: str, run_path: Path) -> dict:
     """Executa o trec_eval para o run file gerado e retorna as métricas."""
-    cmd = ["trec_eval", "-m", "map", "-m", "P.10", "-m", "ndcg_cut.10", qrels, str(run_path)]
+    cmd = ["trec_eval", "-m", "map", "-m", "P.10", "-m", "ndcg_cut.10", "-m", "recall.100", "-m", "recip_rank", qrels, str(run_path)]
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, check=True)
         return parse_trec_eval_output(result.stdout)
@@ -169,13 +226,24 @@ def main():
         print(f"ERRO: {e}")
         return
 
-    # Hiperparâmetros do Grid Search expandidos (36 combinações)
+    # Hiperparâmetros do Grid Search expandidos
     sw_options = [True, False]
     proc_options = ["none", "stemming", "lemmatization"]
-    sim_options = ["bm25", "jelinek_mercer", "dirichlet", "vsm"]
+    sim_options = ["bm25", "jelinek_mercer", "dirichlet", "vsm", "semantic", "hybrid"]
     qe_options = [True, False]  # Nova dimensão: Query Expansion ligado/desligado
 
-    combinations = list(itertools.product(sw_options, proc_options, sim_options, qe_options))
+    combinations_raw = list(itertools.product(sw_options, proc_options, sim_options, qe_options))
+    combinations = []
+    
+    for sw, proc, sim, qe in combinations_raw:
+        if sim in ["semantic", "hybrid"]:
+            # Modelos densos usam seu próprio tokenizador. Variar SW e Proc no índice não afeta a busca semântica.
+            # Adicionamos apenas uma configuração base para evitar testes redundantes.
+            if sw is False and proc == "none":
+                combinations.append((sw, proc, sim, qe))
+        else:
+            combinations.append((sw, proc, sim, qe))
+
     print(f"\n2. Iniciando avaliação de {len(combinations)} combinações do Grid Search...")
 
     results_grid = []
@@ -199,7 +267,9 @@ def main():
                     "qe": qe_label,
                     "map": metrics["map"],
                     "p10": metrics["P_10"],
-                    "ndcg10": metrics["ndcg_cut_10"]
+                    "ndcg10": metrics["ndcg_cut_10"],
+                    "recall100": metrics.get("recall_100", 0.0),
+                    "mrr": metrics.get("recip_rank", 0.0)
                 })
             else:
                 if idx == 1:
@@ -210,12 +280,12 @@ def main():
     if results_grid:
         results_grid.sort(key=lambda x: x["ndcg10"], reverse=True)
 
-        print("\n" + "═" * 102)
-        print(f"{'RANK':<5} | {'STOPWORDS':<11} | {'PROCESSAMENTO':<15} | {'SIMILARIDADE':<15} | {'EXPANSÃO':<12} | {'MAP':<8} | {'P@10':<8} | {'NDCG@10':<8}")
-        print("─" * 102)
+        print("\n" + "═" * 122)
+        print(f"{'RANK':<5} | {'STOPWORDS':<11} | {'PROCESSAMENTO':<15} | {'SIMILARIDADE':<15} | {'EXPANSÃO':<12} | {'MAP':<8} | {'P@10':<8} | {'NDCG@10':<8} | {'REC@100':<8} | {'MRR':<8}")
+        print("─" * 122)
         for rank, res in enumerate(results_grid, start=1):
-            print(f"{rank:<5} | {res['sw']:<11} | {res['proc']:<15} | {res['sim']:<15} | {res['qe']:<12} | {res['map']:.4f} | {res['p10']:.4f} | {res['ndcg10']:.4f}")
-        print("═" * 102)
+            print(f"{rank:<5} | {res['sw']:<11} | {res['proc']:<15} | {res['sim']:<15} | {res['qe']:<12} | {res['map']:.4f} | {res['p10']:.4f} | {res['ndcg10']:.4f} | {res['recall100']:.4f} | {res['mrr']:.4f}")
+        print("═" * 122)
         print(f"✓ Todos os logs detalhados de run salvos na pasta: {RUNS_DIR}\n")
     else:
         print(f"\n✓ Execução concluída. Os 36 arquivos de run foram gerados e salvos em '{RUNS_DIR}'.")

@@ -88,7 +88,7 @@ trap cleanup EXIT INT TERM
 header "ETAPA 0 — Verificando dependências"
 
 DEPS_OK=true
-for dep in docker npm uv curl lsof; do
+for dep in docker pnpm uv curl lsof; do
     if check_dependency "$dep"; then
         success "$dep encontrado: $(command -v "$dep")"
     else
@@ -258,11 +258,11 @@ header "ETAPA 6 — Subindo Frontend (Next.js)"
 
 cd "$FRONTEND_DIR"
 info "Instalando dependências do frontend..."
-npm install --silent
+pnpm install --silent
 success "Dependências instaladas."
 
 info "Iniciando frontend em http://localhost:8888 ..."
-npm run dev &
+pnpm run dev &
 FRONTEND_PID=$!
 success "Frontend iniciado em background (PID $FRONTEND_PID)"
 

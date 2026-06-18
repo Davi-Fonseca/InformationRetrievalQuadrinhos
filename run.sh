@@ -116,7 +116,9 @@ if [[ "$ONLY_EVAL" == true ]]; then
     info "Rodando avaliação com trec_eval..."
     cd "$ES_DIR"
     uv run python avalia_grid.py
-    success "Avaliação concluída!"
+    info "Rodando avaliação do LTR (conjunto de teste)..."
+    uv run python avalia_ltr.py
+    success "Avaliações concluídas!"
     exit 0
 fi
 
@@ -222,10 +224,13 @@ if [[ "$SKIP_EVAL" == false ]]; then
     if command -v trec_eval &>/dev/null; then
         info "Gerando run files e avaliando 48 configurações..."
         uv run python avalia_grid.py
+        info "Rodando avaliação do LTR..."
+        uv run python avalia_ltr.py
         success "Avaliação concluída! Resultados em $ES_DIR/datasets/runs/"
     else
         warn "trec_eval não encontrado. Gerando apenas os run files..."
         uv run python avalia_grid.py
+        uv run python avalia_ltr.py
         warn "Instale o trec_eval para ver as métricas. Os run files estão em $ES_DIR/datasets/runs/"
     fi
 else

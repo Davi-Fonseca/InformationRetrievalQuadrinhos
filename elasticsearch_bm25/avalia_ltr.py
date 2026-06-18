@@ -220,7 +220,7 @@ def main():
         raise SystemExit("Elasticsearch não está rodando em localhost:9200")
 
     print("Carregando modelo semântico...")
-    sem_model = SentenceTransformer("all-MiniLM-L6-v2")
+    sem_model = SentenceTransformer("all-MiniLM-L6-v2", device="cpu")
 
     print(f"Carregando modelo LTR: {MODEL_PATH}")
     ltr_model = xgb.Booster()

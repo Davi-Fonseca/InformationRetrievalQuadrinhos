@@ -365,6 +365,11 @@ def main():
         print("Grid Search Indexing Completo!")
         print("=" * 60)
 
+        print()
+        print("6. Criando índice semântico (embeddings all-MiniLM-L6-v2)")
+        index_with_embeddings(es, FILE_PATH)
+        print("=" * 60)
+
     except Exception as e:
         print(f"ERRO: {e}")
 

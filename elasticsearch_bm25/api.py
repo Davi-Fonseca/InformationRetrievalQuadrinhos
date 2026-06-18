@@ -1,7 +1,7 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
-from src.busca import get_hq_by_id, match_search, multi_match_search, semantic_search, hybrid_search
+from src.busca import get_hq_by_id, match_search, multi_match_search, semantic_search, hybrid_search, ltr_search
 from src.indexa import connect_elasticsearch
 from src.schemas import HQ, SearchResponse
 
@@ -68,5 +68,11 @@ def search_hqs_semantic(q: str, skip: int = 0, size: int = 10):
 @app.get("/search/hybrid", response_model=SearchResponse)
 def search_hqs_hybrid(q: str, skip: int = 0, size: int = 10):
     res = hybrid_search(es_client, q, skip, size)
+    results = [hit["_source"] for hit in res["hits"]["hits"]]
+    return {"data": results}
+
+@app.get("/search/ltr", response_model=SearchResponse)
+def search_hqs_ltr(q: str, skip: int = 0, size: int = 10):
+    res = ltr_search(es_client, q, skip, size)
     results = [hit["_source"] for hit in res["hits"]["hits"]]
     return {"data": results}

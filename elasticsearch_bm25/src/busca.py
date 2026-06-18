@@ -14,7 +14,7 @@ except LookupError:
     nltk.download('omw-1.4', quiet=True)
 
 
-_model = SentenceTransformer("all-MiniLM-L6-v2")
+_model = SentenceTransformer("BAAI/bge-base-en-v1.5")
 
 def expandir_query(query: str) -> str:
     """Aplica Expansão Global de Query usando sinônimos do WordNet."""

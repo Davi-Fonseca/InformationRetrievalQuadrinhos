@@ -222,7 +222,7 @@ def create_semantic_index(es: Elasticsearch):
                 "cover_artist":      {"type": "text"},
                 "embedding": {
                     "type": "dense_vector",
-                    "dims": 384,
+                    "dims": 768,
                     "index": True,
                     "similarity": "cosine",
                 },

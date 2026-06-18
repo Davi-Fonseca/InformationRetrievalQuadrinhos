@@ -20,7 +20,7 @@ SEMANTIC_INDEX = "hqs_semantic"
 FEATURES       = [
     "bm25_score", "bm25_rank",
     "semantic_score", "semantic_rank",
-    "title_bm25_score", "comic_name_bm25_score",
+    "title_bm25_score", "comic_name_bm25_score", "description_bm25_score",
     "rank_diff",
 ]
 TOP_K          = 100
@@ -115,6 +115,7 @@ def build_features(
     sem_results: list,
     title_scores: dict[str, float],
     comic_name_scores: dict[str, float],
+    description_scores: dict[str, float],
 ):
     bm25_map = {doc_id: (score, rank + 1) for rank, (doc_id, score) in enumerate(bm25_results)}
     sem_map  = {doc_id: (score, rank + 1) for rank, (doc_id, score) in enumerate(sem_results)}
@@ -125,8 +126,9 @@ def build_features(
         sem_score,  sem_rank  = sem_map.get(doc_id,  (0.0, 0))
         title_score           = title_scores.get(doc_id, 0.0)
         comic_name_score      = comic_name_scores.get(doc_id, 0.0)
+        description_score     = description_scores.get(doc_id, 0.0)
         rank_diff             = abs(bm25_rank - sem_rank)
-        rows.append([bm25_score, bm25_rank, sem_score, sem_rank, title_score, comic_name_score, rank_diff])
+        rows.append([bm25_score, bm25_rank, sem_score, sem_rank, title_score, comic_name_score, description_score, rank_diff])
     return candidates, np.array(rows, dtype=np.float32)
 
 
@@ -247,8 +249,9 @@ def main():
             if not bm25_results and not sem_results:
                 continue
 
-            title_scores      = fetch_field_bm25(es, text, "issue_title")
-            comic_name_scores = fetch_field_bm25(es, text, "comic_name")
+            title_scores       = fetch_field_bm25(es, text, "issue_title")
+            comic_name_scores  = fetch_field_bm25(es, text, "comic_name")
+            description_scores = fetch_field_bm25(es, text, "issue_description")
 
             bm25_docs = [doc_id for doc_id, _ in bm25_results]
             bm25_resultados[qid] = bm25_docs
@@ -256,7 +259,7 @@ def main():
             for rank, (doc_id, score) in enumerate(bm25_results, start=1):
                 bm25_out.write(f"{qid}\tQ0\t{doc_id}\t{rank}\t{score:.6f}\tbm25\n")
 
-            doc_ids, X = build_features(bm25_results, sem_results, title_scores, comic_name_scores)
+            doc_ids, X = build_features(bm25_results, sem_results, title_scores, comic_name_scores, description_scores)
             scores  = ltr_model.predict(xgb.DMatrix(X, feature_names=FEATURES))
 
             ranked  = sorted(zip(doc_ids, scores), key=lambda x: x[1], reverse=True)

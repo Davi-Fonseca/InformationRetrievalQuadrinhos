@@ -122,8 +122,9 @@ def main():
             for rank, (doc_id, score) in enumerate(sem_results)
         }
 
-        title_scores      = fetch_field_bm25(es, text, "issue_title")
-        comic_name_scores = fetch_field_bm25(es, text, "comic_name")
+        title_scores       = fetch_field_bm25(es, text, "issue_title")
+        comic_name_scores  = fetch_field_bm25(es, text, "comic_name")
+        description_scores = fetch_field_bm25(es, text, "issue_description")
 
         candidates = (
             set(qrels.get(qid, {}).keys())
@@ -137,19 +138,21 @@ def main():
             sem_score,  sem_rank   = sem_map.get(doc_id,  (0.0, 0))
             title_score            = title_scores.get(doc_id, 0.0)
             comic_name_score       = comic_name_scores.get(doc_id, 0.0)
+            description_score      = description_scores.get(doc_id, 0.0)
             rank_diff              = abs(bm25_rank - sem_rank)
 
             rows.append({
-                "query_id":              qid,
-                "doc_id":                doc_id,
-                "relevance":             relevance,
-                "bm25_score":            round(bm25_score, 6),
-                "bm25_rank":             bm25_rank,
-                "semantic_score":        round(sem_score, 6),
-                "semantic_rank":         sem_rank,
-                "title_bm25_score":      round(title_score, 6),
-                "comic_name_bm25_score": round(comic_name_score, 6),
-                "rank_diff":             rank_diff,
+                "query_id":                   qid,
+                "doc_id":                     doc_id,
+                "relevance":                  relevance,
+                "bm25_score":                 round(bm25_score, 6),
+                "bm25_rank":                  bm25_rank,
+                "semantic_score":             round(sem_score, 6),
+                "semantic_rank":              sem_rank,
+                "title_bm25_score":           round(title_score, 6),
+                "comic_name_bm25_score":      round(comic_name_score, 6),
+                "description_bm25_score":     round(description_score, 6),
+                "rank_diff":                  rank_diff,
             })
 
     OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -157,7 +160,7 @@ def main():
         "query_id", "doc_id", "relevance",
         "bm25_score", "bm25_rank",
         "semantic_score", "semantic_rank",
-        "title_bm25_score", "comic_name_bm25_score",
+        "title_bm25_score", "comic_name_bm25_score", "description_bm25_score",
         "rank_diff",
     ]
     with open(OUTPUT_PATH, "w", newline="", encoding="utf-8") as f:

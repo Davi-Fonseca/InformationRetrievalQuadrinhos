@@ -7,7 +7,7 @@ MODEL_PATH   = "datasets/ltr_model.json"
 FEATURES     = [
     "bm25_score", "bm25_rank",
     "semantic_score", "semantic_rank",
-    "title_bm25_score", "comic_name_bm25_score",
+    "title_bm25_score", "comic_name_bm25_score", "description_bm25_score",
     "rank_diff",
 ]
 TRAIN_RATIO  = 0.8

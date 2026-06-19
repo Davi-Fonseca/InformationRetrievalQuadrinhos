@@ -15,22 +15,19 @@ import os
 import subprocess
 from pathlib import Path
 
-from elasticsearch import Elasticsearch
+from src.indexa import connect_elasticsearch
 
 # ── Configurações ────────────────────────────────────────────────────────────
 QUERIES_PATH  = "datasets/queries.tsv"
 QRELS_PATH    = "datasets/qrels.txt"
 RUN_PATH      = "datasets/run_bm25.txt"
 ES_INDEX      = "hqs"
-ES_URL        = "http://localhost:9200"
 RESULTS_PER_QUERY = 100
 SYSTEM_NAME   = "bm25_elasticsearch"
 # ─────────────────────────────────────────────────────────────────────────────
 
-es = Elasticsearch([ES_URL])
 
-
-def buscar_docs(query: str, size: int = 100) -> list[tuple[str, float]]:
+def buscar_docs(es, query: str, size: int = 100) -> list[tuple[str, float]]:
     res = es.search(
         index=ES_INDEX,
         body={
@@ -47,7 +44,7 @@ def buscar_docs(query: str, size: int = 100) -> list[tuple[str, float]]:
     return [(hit["_id"], hit["_score"]) for hit in res["hits"]["hits"]]
 
 
-def gerar_run_file():
+def gerar_run_file(es):
     print("Carregando queries...")
     queries = []
     with open(QUERIES_PATH, encoding="utf-8") as f:
@@ -67,7 +64,7 @@ def gerar_run_file():
             query = q["query"]
 
             try:
-                resultados = buscar_docs(query, RESULTS_PER_QUERY)
+                resultados = buscar_docs(es, query, RESULTS_PER_QUERY)
             except Exception as e:
                 print(f"[{i+1}] {qid}: ERRO — {e}")
                 continue
@@ -136,7 +133,8 @@ def avaliar(qrels: str, run: str):
 
 
 def main():
-    run_path = gerar_run_file()
+    es = connect_elasticsearch()
+    run_path = gerar_run_file(es)
     avaliar(QRELS_PATH, str(run_path))
 
     print("\n── Resumo dos arquivos gerados ──────────────────")

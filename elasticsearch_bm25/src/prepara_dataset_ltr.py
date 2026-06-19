@@ -43,7 +43,7 @@ def fetch_bm25(es: Elasticsearch, query: str):
                 "query": {
                     "multi_match": {
                         "query": query,
-                        "fields": ["issue_title^2", "issue_description", "comic_name^3"],
+                        "fields": ["issue_title^4", "issue_description^2", "comic_name^5"],
                         "type": "best_fields",
                     }
                 }
@@ -94,7 +94,7 @@ def main():
     print("Conectando ao Elasticsearch...")
     es = Elasticsearch([ES_URL])
 
-    model = SentenceTransformer("all-MiniLM-L6-v2")
+    model = SentenceTransformer("all-MiniLM-L6-v2", device="cpu")
     print("Modelo carregado!\n")
 
     queries = load_queries(QUERIES_PATH)

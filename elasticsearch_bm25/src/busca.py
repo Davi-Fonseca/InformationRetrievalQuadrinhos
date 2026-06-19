@@ -5,11 +5,10 @@ from pathlib import Path
 import numpy as np
 import xgboost as xgb
 from elasticsearch import Elasticsearch
-from .indexa import connect_elasticsearch
+from .indexa import connect_elasticsearch, get_embedding_model
 
 import nltk
 from nltk.corpus import wordnet
-from sentence_transformers import SentenceTransformer
 # Garante os dados do WordNet carregados
 try:
     wordnet.ensure_loaded()
@@ -18,17 +17,21 @@ except LookupError:
     nltk.download('omw-1.4', quiet=True)
 
 
-_model = SentenceTransformer("all-MiniLM-L6-v2")
-
 _LTR_FEATURES = [
     "bm25_score", "bm25_rank",
     "semantic_score", "semantic_rank",
     "title_bm25_score", "comic_name_bm25_score", "description_bm25_score",
     "rank_diff",
 ]
-_ltr_model = xgb.Booster()
-_ltr_model.load_model(Path(__file__).parent.parent / "datasets" / "ltr_model.json")
 
+_ltr_model_instance = None
+
+def get_ltr_model():
+    global _ltr_model_instance
+    if _ltr_model_instance is None:
+        _ltr_model_instance = xgb.Booster()
+        _ltr_model_instance.load_model(Path(__file__).parent.parent / "datasets" / "ltr_model.json")
+    return _ltr_model_instance
 def expandir_query(query: str) -> str:
     """Aplica Expansão Global de Query usando sinônimos do WordNet."""
     palavras = query.strip().split()
@@ -73,7 +76,7 @@ def multi_match_grid_search(
             "query": {
                 "multi_match": {
                     "query": query,
-                    "fields": ["issue_title^2", "issue_description", "comic_name^3"],
+                    "fields": ["issue_title^4", "issue_description^2", "comic_name^5"],
                     "type": "best_fields",
                 }
             },
@@ -88,7 +91,7 @@ def run_full_grid_evaluation(es: Elasticsearch, search_query: str):
     """Executes the query across all 36 configurations to cross-examine top score profiles."""
     sw_options = [True, False]
     proc_options = ["none", "stemming", "lemmatization"]
-    sim_options = ["bm25", "jelinek_mercer", "dirichlet"]
+    sim_options = ["bm25", "jelinek_mercer", "dirichlet", "vsm"]
     qe_options = [True, False]  # Inclusão da dimensão de Query Expansion
 
     print(f"\nAVALIANDO QUERY ORIGINAL: '{search_query}' ATRAVÉS DO GRID SEARCH EXPANDIDO")
@@ -142,7 +145,7 @@ def multi_match_search(es: Elasticsearch, query: str, skip: int = 0, size: int =
             "query": {
                 "multi_match": {
                     "query": query,
-                    "fields": ["issue_title^2", "issue_description", "comic_name^3"],
+                    "fields": ["issue_title^4", "issue_description^2", "comic_name^5"],
                     "type": "best_fields",
                 }
             },
@@ -158,7 +161,7 @@ def get_hq_by_id(es: Elasticsearch, id: str):
 
 
 def semantic_search(es: Elasticsearch, query: str, skip: int = 0, size: int = 10):
-    query_vector = _model.encode(query).tolist()
+    query_vector = get_embedding_model().encode(query).tolist()
 
     res  = es.search(
         index="hqs_semantic",
@@ -177,7 +180,7 @@ def semantic_search(es: Elasticsearch, query: str, skip: int = 0, size: int = 10
 
 def hybrid_search(es: Elasticsearch, query: str, skip: int = 0, size: int = 10):
     """RRF manual: combina BM25 e kNN sem precisar de licença Enterprise."""
-    query_vector = _model.encode(query).tolist()
+    query_vector = get_embedding_model().encode(query).tolist()
     k = 60 
 
     bm25_res = es.search(
@@ -186,7 +189,7 @@ def hybrid_search(es: Elasticsearch, query: str, skip: int = 0, size: int = 10):
             "query": {
                 "multi_match": {
                     "query": query,
-                    "fields": ["issue_title^2", "issue_description", "comic_name^3"],
+                    "fields": ["issue_title^4", "issue_description^2", "comic_name^5"],
                 }
             }
         },
@@ -229,12 +232,12 @@ def ltr_search(es: Elasticsearch, query: str, skip: int = 0, size: int = 10):
 
     bm25_res = es.search(
         index="hqs",
-        body={"query": {"multi_match": {"query": query, "fields": ["issue_title^2", "issue_description", "comic_name^3"], "type": "best_fields"}}},
+        body={"query": {"multi_match": {"query": query, "fields": ["issue_title^4", "issue_description^2", "comic_name^5"], "type": "best_fields"}}},
         size=TOP_K,
     )
     bm25_results = [(h["_id"], h["_score"]) for h in bm25_res["hits"]["hits"]]
 
-    vector = _model.encode(query).tolist()
+    vector = get_embedding_model().encode(query).tolist()
     sem_res = es.search(
         index="hqs_semantic",
         body={"knn": {"field": "embedding", "query_vector": vector, "k": TOP_K, "num_candidates": TOP_K * 2}},
@@ -265,7 +268,7 @@ def ltr_search(es: Elasticsearch, query: str, skip: int = 0, size: int = 10):
                      abs(br - sr)])
 
     X = np.array(rows, dtype=np.float32)
-    ltr_scores = _ltr_model.predict(xgb.DMatrix(X, feature_names=_LTR_FEATURES))
+    ltr_scores = get_ltr_model().predict(xgb.DMatrix(X, feature_names=_LTR_FEATURES))
 
     ranked = sorted(zip(candidates, ltr_scores), key=lambda x: x[1], reverse=True)
     page = ranked[skip: skip + size]

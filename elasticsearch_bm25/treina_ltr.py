@@ -14,18 +14,23 @@ TRAIN_RATIO  = 0.8
 SEED         = 42
 
 
-def split_by_query(df: pd.DataFrame, train_ratio: float, seed: int):
-    queries_with_relevant = df.groupby("query_id")["relevance"].max()
-    valid_ids = queries_with_relevant[queries_with_relevant > 0].index
-    query_ids = df[df["query_id"].isin(valid_ids)]["query_id"].unique()
-    rng = np.random.default_rng(seed)
-    rng.shuffle(query_ids)
+def get_qids_from_file(filepath):
+    qids = set()
+    with open(filepath, "r", encoding="utf-8") as f:
+        for line in f:
+            qids.add(line.strip().split("\t")[0])
+    return qids
 
-    n_train = int(len(query_ids) * train_ratio)
-    train_queries = set(query_ids[:n_train])
-    test_queries  = set(query_ids[n_train:])
-
-    return df[df["query_id"].isin(train_queries)], df[df["query_id"].isin(test_queries)]
+def split_by_physical_files(df: pd.DataFrame):
+    train_qids = get_qids_from_file("datasets/queries_treino.tsv")
+    val_qids   = get_qids_from_file("datasets/queries_val.tsv")
+    test_qids  = get_qids_from_file("datasets/queries_teste.tsv")
+    
+    df_train = df[df["query_id"].isin(train_qids)]
+    df_val   = df[df["query_id"].isin(val_qids)]
+    df_test  = df[df["query_id"].isin(test_qids)]
+    
+    return df_train, df_val, df_test
 
 
 def build_dmatrix(df: pd.DataFrame) -> xgb.DMatrix:
@@ -45,11 +50,13 @@ def main():
     df = pd.read_csv(DATASET_PATH)
     print(f"  {len(df):,} linhas | {df['query_id'].nunique()} queries únicas\n")
 
-    df_train, df_test = split_by_query(df, TRAIN_RATIO, SEED)
-    print(f"Treino: {df_train['query_id'].nunique()} queries ({len(df_train):,} pares)")
-    print(f"Teste:  {df_test['query_id'].nunique()} queries ({len(df_test):,} pares)\n")
+    df_train, df_val, df_test = split_by_physical_files(df)
+    print(f"Treino:    {df_train['query_id'].nunique()} queries ({len(df_train):,} pares)")
+    print(f"Validação: {df_val['query_id'].nunique()} queries ({len(df_val):,} pares)")
+    print(f"Teste:     {df_test['query_id'].nunique()} queries ({len(df_test):,} pares)\n")
 
     dtrain = build_dmatrix(df_train)
+    dval   = build_dmatrix(df_val)
     dtest  = build_dmatrix(df_test)
 
     params = {
@@ -66,7 +73,7 @@ def main():
         params,
         dtrain,
         num_boost_round=200,
-        evals=[(dtrain, "train"), (dtest, "test")],
+        evals=[(dtrain, "train"), (dval, "val")],
         verbose_eval=20,
         early_stopping_rounds=10
     )

@@ -8,8 +8,8 @@ import xgboost as xgb
 from elasticsearch import Elasticsearch
 from sentence_transformers import SentenceTransformer
 
-QUERIES_PATH   = "datasets/queries.tsv"
-QRELS_PATH     = "datasets/qrels.txt"
+QUERIES_PATH   = "datasets/queries_teste.tsv"
+QRELS_PATH     = "datasets/qrels_teste.txt"
 DATASET_PATH   = "datasets/dataset_ltr.csv"
 RUN_LTR_PATH   = "datasets/run_ltr_test.txt"
 RUN_BM25_PATH  = "datasets/run_bm25_test.txt"
@@ -220,15 +220,14 @@ def main():
         raise SystemExit("Elasticsearch não está rodando em localhost:9200")
 
     print("Carregando modelo semântico...")
-    sem_model = SentenceTransformer("all-MiniLM-L6-v2")
+    sem_model = SentenceTransformer("all-MiniLM-L6-v2", device="cpu")
 
     print(f"Carregando modelo LTR: {MODEL_PATH}")
     ltr_model = xgb.Booster()
     ltr_model.load_model(MODEL_PATH)
 
     qrels    = load_qrels(QRELS_PATH)
-    test_ids = get_test_query_ids(qrels)
-    queries  = [(qid, text) for qid, text in load_queries(QUERIES_PATH) if qid in test_ids]
+    queries  = load_queries(QUERIES_PATH)
 
     print(f"\n{len(queries)} queries de teste\n")
 

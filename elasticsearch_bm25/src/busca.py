@@ -76,7 +76,7 @@ def multi_match_grid_search(
             "query": {
                 "multi_match": {
                     "query": query,
-                    "fields": ["issue_title^2", "issue_description", "comic_name^3"],
+                    "fields": ["issue_title^4", "issue_description^2", "comic_name^5"],
                     "type": "best_fields",
                 }
             },
@@ -145,7 +145,7 @@ def multi_match_search(es: Elasticsearch, query: str, skip: int = 0, size: int =
             "query": {
                 "multi_match": {
                     "query": query,
-                    "fields": ["issue_title^2", "issue_description", "comic_name^3"],
+                    "fields": ["issue_title^4", "issue_description^2", "comic_name^5"],
                     "type": "best_fields",
                 }
             },
@@ -189,7 +189,7 @@ def hybrid_search(es: Elasticsearch, query: str, skip: int = 0, size: int = 10):
             "query": {
                 "multi_match": {
                     "query": query,
-                    "fields": ["issue_title^2", "issue_description", "comic_name^3"],
+                    "fields": ["issue_title^4", "issue_description^2", "comic_name^5"],
                 }
             }
         },
@@ -232,7 +232,7 @@ def ltr_search(es: Elasticsearch, query: str, skip: int = 0, size: int = 10):
 
     bm25_res = es.search(
         index="hqs",
-        body={"query": {"multi_match": {"query": query, "fields": ["issue_title^2", "issue_description", "comic_name^3"], "type": "best_fields"}}},
+        body={"query": {"multi_match": {"query": query, "fields": ["issue_title^4", "issue_description^2", "comic_name^5"], "type": "best_fields"}}},
         size=TOP_K,
     )
     bm25_results = [(h["_id"], h["_score"]) for h in bm25_res["hits"]["hits"]]

@@ -23,10 +23,13 @@ except LookupError:
     nltk.download('omw-1.4', quiet=True)
 
 from src.indexa import connect_elasticsearch, get_embedding_model
+from src.busca import get_ltr_model
+import numpy as np
+import xgboost as xgb
 
 # ── Configurações ────────────────────────────────────────────────────────────
-QUERIES_PATH  = "datasets/queries.tsv"
-QRELS_PATH    = "datasets/qrels.txt"
+QUERIES_PATH  = "datasets/queries_teste.tsv"
+QRELS_PATH    = "datasets/qrels_teste.txt"
 RUNS_DIR      = "datasets/runs"       # Pasta para organizar os 36 run files
 RESULTS_PER_QUERY = 100               # Padrão top-100 para avaliação de RI
 # ─────────────────────────────────────────────────────────────────────────────
@@ -124,6 +127,55 @@ def buscar_docs(es: Elasticsearch, query: str, index_name: str, sim: str, qe: bo
         ranked = sorted(scores.items(), key=lambda x: x[1], reverse=True)
         return ranked[:size]
 
+    elif sim == "bm25+ltr":
+        # 1. Recupera etapa 1 (O modelo clássico atual do grid)
+        bm25_res = es.search(
+            index=index_name,
+            body={"query": {"multi_match": {"query": query, "fields": ["issue_title^4", "issue_description^2", "comic_name^5"], "type": "best_fields"}}},
+            size=size,
+        )
+        bm25_results = [(h["_id"], h["_score"]) for h in bm25_res["hits"]["hits"]]
+        
+        # 2. Recupera Semântico
+        query_vector = get_embedding_model().encode(query).tolist()
+        sem_res = es.search(
+            index="hqs_semantic",
+            body={"knn": {"field": "embedding", "query_vector": query_vector, "k": size, "num_candidates": size * 2}},
+            size=size,
+        )
+        sem_results = [(h["_id"], h["_score"]) for h in sem_res["hits"]["hits"]]
+        
+        # 3. Recupera scores isolados do campo
+        def field_scores(field):
+            r = es.search(index=index_name, body={"query": {"match": {field: query}}}, size=size)
+            return {h["_id"]: h["_score"] for h in r["hits"]["hits"]}
+            
+        title_scores  = field_scores("issue_title")
+        comic_scores  = field_scores("comic_name")
+        desc_scores   = field_scores("issue_description")
+
+        # 4. Constrói features
+        bm25_map = {doc_id: (score, rank + 1) for rank, (doc_id, score) in enumerate(bm25_results)}
+        sem_map  = {doc_id: (score, rank + 1) for rank, (doc_id, score) in enumerate(sem_results)}
+        candidates = list(set(bm25_map) | set(sem_map))
+
+        rows = []
+        for doc_id in candidates:
+            bs, br = bm25_map.get(doc_id, (0.0, 0))
+            ss, sr = sem_map.get(doc_id,  (0.0, 0))
+            rows.append([bs, br, ss, sr, title_scores.get(doc_id, 0.0), comic_scores.get(doc_id, 0.0), desc_scores.get(doc_id, 0.0), abs(br - sr)])
+
+        if not rows:
+            return []
+
+        # 5. Predição LTR
+        X = np.array(rows, dtype=np.float32)
+        features_names = ["bm25_score", "bm25_rank", "semantic_score", "semantic_rank", "title_bm25_score", "comic_name_bm25_score", "description_bm25_score", "rank_diff"]
+        ltr_scores = get_ltr_model().predict(xgb.DMatrix(X, feature_names=features_names))
+
+        ranked = sorted(zip(candidates, ltr_scores), key=lambda x: x[1], reverse=True)
+        return ranked[:size]
+
     else:
         res = es.search(
             index=index_name,
@@ -161,7 +213,8 @@ def gerar_run_file(es, queries: list[dict], sw: bool, proc: str, sim: str, qe: b
     qe_str = "expanded" if qe else "original"
     
     # Nome do índice do ES existente (GQE não altera o nome do índice físico)
-    index_name = f"hqs_sw_{sw_str}_proc_{proc}_sim_{sim}"
+    base_sim = "bm25" if sim == "bm25+ltr" else sim
+    index_name = f"hqs_sw_{sw_str}_proc_{proc}_sim_{base_sim}"
     
     # Identificador único do sistema no arquivo TREC
     system_name = f"grid_{sw_str}_{proc}_{sim}_{qe_str}"
@@ -229,7 +282,7 @@ def main():
     # Hiperparâmetros do Grid Search expandidos
     sw_options = [True, False]
     proc_options = ["none", "stemming", "lemmatization"]
-    sim_options = ["bm25", "jelinek_mercer", "dirichlet", "vsm", "semantic", "hybrid"]
+    sim_options = ["bm25", "jelinek_mercer", "dirichlet", "vsm", "semantic", "hybrid", "bm25+ltr"]
     qe_options = [True, False]  # Nova dimensão: Query Expansion ligado/desligado
 
     combinations_raw = list(itertools.product(sw_options, proc_options, sim_options, qe_options))

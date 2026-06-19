@@ -32,58 +32,6 @@ def connect_elasticsearch():
     return es
 
 
-def create_index(es: Elasticsearch, index_name="hqs"):
-    if es.indices.exists(index=index_name):
-        print("Indice existente, removendo.")
-        es.indices.delete(index=index_name)
-        print("Indice removido.")
-
-    index_settings = {
-        "settings": {
-            "number_of_shards": 1,
-            "number_of_replicas": 0,
-            "analysis": {
-                "analyzer": {
-                    "english_analyzer": {
-                        "type": "standard",
-                        "stopwords": "_english_",
-                    }
-                },
-            },
-        },
-        "mappings": {
-            "properties": {
-                "id": {"type": "keyword"},
-                "comic_name": {
-                    "type": "text",
-                    "analyzer": "english_analyzer",
-                    "fields": {"keyword": {"type": "keyword"}},
-                },
-                "issue_title": {"type": "text", "analyzer": "english_analyzer"},
-                "issue_description": {"type": "text", "analyzer": "english_analyzer"},
-                "writer": {
-                    "type": "text",
-                    "analyzer": "english_analyzer",
-                    "fields": {"keyword": {"type": "keyword"}},
-                },
-                "penciler": {
-                    "type": "text",
-                    "analyzer": "english_analyzer",
-                    "fields": {"keyword": {"type": "keyword"}},
-                },
-                "cover_artist": {
-                    "type": "text",
-                    "analyzer": "english_analyzer",
-                    "fields": {"keyword": {"type": "keyword"}},
-                },
-            }
-        },
-    }
-
-    es.indices.create(index=index_name, body=index_settings)
-    print(f"Índice '{index_name}' criado com sucesso!")
-
-
 def create_grid_index(es: Elasticsearch, sw: bool, proc: str, sim: str):
     index_name = f"hqs_sw_{'yes' if sw else 'no'}_proc_{proc}_sim_{sim}"
 
@@ -199,7 +147,7 @@ def load_json_file(file_path):
     return data
 
 
-def bulk_indexing_action(docs, index_name="hqs"):
+def bulk_indexing_action(docs, index_name):
     for doc in docs:
         yield {
             "_index": index_name,
@@ -214,18 +162,6 @@ def bulk_indexing_action(docs, index_name="hqs"):
                 "cover_artist": doc.get("cover_artist"),
             },
         }
-
-
-def indexing(es: Elasticsearch, docs, index_name="hqs"):
-    print("Indexando documentos...")
-    success, failure = bulk(es, bulk_indexing_action(docs, index_name), stats_only=True)
-    print("Indexação concluída!")
-    print(f"HQs indexadas: {success}")
-    if failure:
-        print(f"Erros: {failure}")
-    es.indices.refresh(index=index_name)
-    count = es.count(index=index_name)
-    print(f"Total de HQs no índice: {count['count']}")
 
 
 def create_semantic_index(es: Elasticsearch):
@@ -320,7 +256,6 @@ def index_with_embeddings(es: Elasticsearch, dataset_path: str):
 
 
 def main():
-    INDEX_NAME = "hqs"
     FILE_PATH = "datasets/dataset.json"
 
     try:
@@ -328,24 +263,11 @@ def main():
         es = connect_elasticsearch()
         print()
 
-        print("2. Criando o Índice")
-        create_index(es, INDEX_NAME)
-        print()
-
         print("3. Lendo as HQs do JSON")
         docs = load_json_file(FILE_PATH)
         print()
 
-        print("4. Indexando HQs")
-        indexing(es, docs, INDEX_NAME)
-        print()
-
-        print("=" * 60)
-        print("Indexação concluída")
-        print("=" * 60)
-        print()
-
-        print("5. Iniciando Grid Search de Hiperparâmetros")
+        print("4. Iniciando Grid Search de Hiperparâmetros")
         sw_options = [True, False]
         proc_options = ["none", "stemming", "lemmatization"]
         sim_options = ["bm25", "jelinek_mercer", "dirichlet", "vsm"]
